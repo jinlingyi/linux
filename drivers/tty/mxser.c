@@ -638,16 +638,15 @@ static int mxser_set_baud(struct tty_struct *tty, long newspd)
  * This routine is called to set the UART divisor registers to match
  * the specified baud rate for a serial port.
  */
-static int mxser_change_speed(struct tty_struct *tty)
+static void mxser_change_speed(struct tty_struct *tty)
 {
 	struct mxser_port *info = tty->driver_data;
 	unsigned cflag, cval, fcr;
-	int ret = 0;
 	unsigned char status;
 
 	cflag = tty->termios.c_cflag;
 	if (!info->ioaddr)
-		return ret;
+		return;
 
 	if (mxser_set_baud_method[tty->index] == 0)
 		mxser_set_baud(tty, tty_get_baud_rate(tty));
@@ -803,8 +802,6 @@ static int mxser_change_speed(struct tty_struct *tty)
 
 	outb(fcr, info->ioaddr + UART_FCR);	/* set fcr */
 	outb(cval, info->ioaddr + UART_LCR);
-
-	return ret;
 }
 
 static void mxser_check_modem_status(struct tty_struct *tty,
@@ -1276,7 +1273,6 @@ static int mxser_set_serial_info(struct tty_struct *tty,
 				(ss->flags & ASYNC_FLAGS));
 		port->close_delay = ss->close_delay * HZ / 100;
 		port->closing_wait = ss->closing_wait * HZ / 100;
-		port->low_latency = (port->flags & ASYNC_LOW_LATENCY) ? 1 : 0;
 		if ((port->flags & ASYNC_SPD_MASK) == ASYNC_SPD_CUST &&
 				(ss->baud_base != info->baud_base ||
 				ss->custom_divisor !=

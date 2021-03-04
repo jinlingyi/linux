@@ -26,12 +26,11 @@
 #define USER_DS			MAKE_MM_SEG(0x80000000UL)
 #define KERNEL_DS		MAKE_MM_SEG(0)
 
-#define get_ds()		(KERNEL_DS)
 
 #define get_fs()		(current_thread_info()->addr_limit)
 #define set_fs(seg)		(current_thread_info()->addr_limit = (seg))
 
-#define segment_eq(a, b)	((a).seg == (b).seg)
+#define uaccess_kernel() (get_fs().seg == KERNEL_DS.seg)
 
 #define __access_ok(addr, len)			\
 	(((signed long)(((long)get_fs().seg) &	\

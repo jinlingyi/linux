@@ -83,11 +83,10 @@ core-y		+= $(buildvar) $(buildplf)
 core-y 		+= arch/xtensa/boot/dts/
 
 libs-y		+= arch/xtensa/lib/ $(LIBGCC)
-drivers-$(CONFIG_OPROFILE)	+= arch/xtensa/oprofile/
 
 boot		:= arch/xtensa/boot
 
-all Image zImage uImage: vmlinux
+all Image zImage uImage xipImage: vmlinux
 	$(Q)$(MAKE) $(build)=$(boot) $@
 
 archheaders:
@@ -97,4 +96,5 @@ define archhelp
   @echo '* Image       - Kernel ELF image with reset vector'
   @echo '* zImage      - Compressed kernel image (arch/xtensa/boot/images/zImage.*)'
   @echo '* uImage      - U-Boot wrapped image'
+  @echo '  xipImage    - XIP image'
 endef

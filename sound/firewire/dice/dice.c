@@ -1,8 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * TC Applied Technologies Digital Interface Communications Engine driver
  *
  * Copyright (c) Clemens Ladisch <clemens@ladisch.de>
- * Licensed under the terms of the GNU General Public License, version 2.
  */
 
 #include "dice.h"
@@ -18,10 +18,14 @@ MODULE_LICENSE("GPL v2");
 #define OUI_ALESIS		0x000595
 #define OUI_MAUDIO		0x000d6c
 #define OUI_MYTEK		0x001ee8
+#define OUI_SSL			0x0050c2	// Actually ID reserved by IEEE.
+#define OUI_PRESONUS		0x000a92
+#define OUI_HARMAN		0x000fd7
 
 #define DICE_CATEGORY_ID	0x04
 #define WEISS_CATEGORY_ID	0x00
 #define LOUD_CATEGORY_ID	0x10
+#define HARMAN_CATEGORY_ID	0x20
 
 #define MODEL_ALESIS_IO_BOTH	0x000001
 
@@ -54,6 +58,8 @@ static int check_dice_category(struct fw_unit *unit)
 		category = WEISS_CATEGORY_ID;
 	else if (vendor == OUI_LOUD)
 		category = LOUD_CATEGORY_ID;
+	else if (vendor == OUI_HARMAN)
+		category = HARMAN_CATEGORY_ID;
 	else
 		category = DICE_CATEGORY_ID;
 	if (device->config_rom[3] != ((vendor << 8) | category) ||
@@ -196,7 +202,7 @@ static int dice_probe(struct fw_unit *unit,
 	struct snd_dice *dice;
 	int err;
 
-	if (!entry->driver_data) {
+	if (!entry->driver_data && entry->vendor_id != OUI_SSL) {
 		err = check_dice_category(unit);
 		if (err < 0)
 			return -ENODEV;
@@ -353,6 +359,14 @@ static const struct ieee1394_device_id dice_id_table[] = {
 		.model_id	= MODEL_ALESIS_IO_BOTH,
 		.driver_data = (kernel_ulong_t)snd_dice_detect_alesis_formats,
 	},
+	// Alesis MasterControl.
+	{
+		.match_flags	= IEEE1394_MATCH_VENDOR_ID |
+				  IEEE1394_MATCH_MODEL_ID,
+		.vendor_id	= OUI_ALESIS,
+		.model_id	= 0x000002,
+		.driver_data = (kernel_ulong_t)snd_dice_detect_alesis_mastercontrol_formats,
+	},
 	/* Mytek Stereo 192 DSD-DAC. */
 	{
 		.match_flags	= IEEE1394_MATCH_VENDOR_ID |
@@ -360,6 +374,31 @@ static const struct ieee1394_device_id dice_id_table[] = {
 		.vendor_id	= OUI_MYTEK,
 		.model_id	= 0x000002,
 		.driver_data = (kernel_ulong_t)snd_dice_detect_mytek_formats,
+	},
+	// Solid State Logic, Duende Classic and Mini.
+	// NOTE: each field of GUID in config ROM is not compliant to standard
+	// DICE scheme.
+	{
+		.match_flags	= IEEE1394_MATCH_VENDOR_ID |
+				  IEEE1394_MATCH_MODEL_ID,
+		.vendor_id	= OUI_SSL,
+		.model_id	= 0x000070,
+	},
+	// Presonus FireStudio.
+	{
+		.match_flags	= IEEE1394_MATCH_VENDOR_ID |
+				  IEEE1394_MATCH_MODEL_ID,
+		.vendor_id	= OUI_PRESONUS,
+		.model_id	= 0x000008,
+		.driver_data	= (kernel_ulong_t)snd_dice_detect_presonus_formats,
+	},
+	// Lexicon I-ONYX FW810S.
+	{
+		.match_flags	= IEEE1394_MATCH_VENDOR_ID |
+				  IEEE1394_MATCH_MODEL_ID,
+		.vendor_id	= OUI_HARMAN,
+		.model_id	= 0x000001,
+		.driver_data	= (kernel_ulong_t)snd_dice_detect_harman_formats,
 	},
 	{
 		.match_flags = IEEE1394_MATCH_VERSION,

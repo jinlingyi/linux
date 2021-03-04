@@ -1,18 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2009, Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #ifndef __PSB_INTEL_REG_H__
 #define __PSB_INTEL_REG_H__
@@ -607,7 +595,7 @@ struct dpst_guardband {
 #define PIPE_PIXEL_MASK		0x00ffffff
 #define PIPE_PIXEL_SHIFT	0
 
-#define FW_BLC_SELF		0x20e0 
+#define FW_BLC_SELF		0x20e0
 #define FW_BLC_SELF_EN          (1<<15)
 
 #define DSPARB			0x70030
@@ -801,17 +789,9 @@ struct dpst_guardband {
  * MOORESTOWN delta registers
  */
 #define MRST_DPLL_A		0x0f014
-#define MDFLD_DPLL_B		0x0f018
-#define MDFLD_INPUT_REF_SEL		(1 << 14)
-#define MDFLD_VCO_SEL			(1 << 16)
 #define DPLLA_MODE_LVDS			(2 << 26)	/* mrst */
-#define MDFLD_PLL_LATCHEN		(1 << 28)
-#define MDFLD_PWR_GATE_EN		(1 << 30)
-#define MDFLD_P1_MASK			(0x1FF << 17)
 #define MRST_FPA0		0x0f040
 #define MRST_FPA1		0x0f044
-#define MDFLD_DPLL_DIV0		0x0f048
-#define MDFLD_DPLL_DIV1		0x0f04c
 #define MRST_PERF_MODE		0x020f4
 
 /*
@@ -860,7 +840,6 @@ struct dpst_guardband {
 
 #define MRST_DSPABASE		0x7019c
 #define MRST_DSPBBASE		0x7119c
-#define MDFLD_DSPCBASE		0x7219c
 
 /*
  * Moorestown registers.
@@ -942,7 +921,6 @@ struct dpst_guardband {
 #define DEVICE_RESET_REG		0xb01C
 #define DPI_RESOLUTION_REG		0xb020
 #define RES_V_POS				0x10
-#define DBI_RESOLUTION_REG		0xb024 /* Reserved for MDFLD */
 #define HORIZ_SYNC_PAD_COUNT_REG	0xb028
 #define HORIZ_BACK_PORCH_COUNT_REG	0xb02C
 #define HORIZ_FRONT_PORCH_COUNT_REG	0xb030

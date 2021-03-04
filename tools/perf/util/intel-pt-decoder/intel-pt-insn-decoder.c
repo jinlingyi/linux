@@ -1,29 +1,20 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * intel_pt_insn_decoder.c: Intel Processor Trace support
  * Copyright (c) 2013-2014, Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
  */
 
+#include <linux/kernel.h>
 #include <stdio.h>
 #include <string.h>
 #include <endian.h>
 #include <byteswap.h>
+#include "../../../arch/x86/include/asm/insn.h"
+
+#include "../../../arch/x86/lib/inat.c"
+#include "../../../arch/x86/lib/insn.c"
 
 #include "event.h"
-
-#include "insn.h"
-
-#include "inat.c"
-#include "insn.c"
 
 #include "intel-pt-insn-decoder.h"
 #include "dump-insn.h"
@@ -52,6 +43,17 @@ static void intel_pt_insn_decoder(struct insn *insn,
 	switch (insn->opcode.bytes[0]) {
 	case 0xf:
 		switch (insn->opcode.bytes[1]) {
+		case 0x01:
+			switch (insn->modrm.bytes[0]) {
+			case 0xc2: /* vmlaunch */
+			case 0xc3: /* vmresume */
+				op = INTEL_PT_OP_VMENTRY;
+				branch = INTEL_PT_BR_INDIRECT;
+				break;
+			default:
+				break;
+			}
+			break;
 		case 0x05: /* syscall */
 		case 0x34: /* sysenter */
 			op = INTEL_PT_OP_SYSCALL;
@@ -222,6 +224,7 @@ const char *branch_name[] = {
 	[INTEL_PT_OP_INT]	= "Int",
 	[INTEL_PT_OP_SYSCALL]	= "Syscall",
 	[INTEL_PT_OP_SYSRET]	= "Sysret",
+	[INTEL_PT_OP_VMENTRY]	= "VMentry",
 };
 
 const char *intel_pt_insn_name(enum intel_pt_insn_op op)
@@ -276,6 +279,9 @@ int intel_pt_insn_type(enum intel_pt_insn_op op)
 	case INTEL_PT_OP_SYSRET:
 		return PERF_IP_FLAG_BRANCH | PERF_IP_FLAG_RETURN |
 		       PERF_IP_FLAG_SYSCALLRET;
+	case INTEL_PT_OP_VMENTRY:
+		return PERF_IP_FLAG_BRANCH | PERF_IP_FLAG_CALL |
+		       PERF_IP_FLAG_VMENTRY;
 	default:
 		return 0;
 	}

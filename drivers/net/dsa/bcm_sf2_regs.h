@@ -1,12 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Broadcom Starfighter 2 switch register defines
  *
  * Copyright (C) 2014, Broadcom Corporation
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  */
 #ifndef __BCM_SF2_REGS_H
 #define __BCM_SF2_REGS_H
@@ -21,6 +17,7 @@ enum bcm_sf2_reg_offs {
 	REG_SWITCH_REVISION,
 	REG_PHY_REVISION,
 	REG_SPHY_CNTRL,
+	REG_CROSSBAR,
 	REG_RGMII_0_CNTRL,
 	REG_RGMII_1_CNTRL,
 	REG_RGMII_2_CNTRL,
@@ -399,6 +396,10 @@ enum bcm_sf2_reg_offs {
 
 #define CORE_RATE_METER6		0x281e0
 #define  CIR_REF_CNT_MASK		0x7ffff
+
+#define CORE_STAT_GREEN_CNTR		0x28200
+#define CORE_STAT_YELLOW_CNTR		0x28210
+#define CORE_STAT_RED_CNTR		0x28220
 
 #define CORE_CFP_CTL_REG		0x28400
 #define  CFP_EN_MAP_MASK		0x1ff

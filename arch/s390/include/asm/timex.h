@@ -10,13 +10,33 @@
 #ifndef _ASM_S390_TIMEX_H
 #define _ASM_S390_TIMEX_H
 
-#include <asm/lowcore.h>
+#include <linux/preempt.h>
 #include <linux/time64.h>
+#include <asm/lowcore.h>
 
 /* The value of the TOD clock for 1.1.1970. */
 #define TOD_UNIX_EPOCH 0x7d91048bca000000ULL
 
 extern u64 clock_comparator_max;
+
+union tod_clock {
+	__uint128_t val;
+	struct {
+		__uint128_t ei	:  8; /* epoch index */
+		__uint128_t tod : 64; /* bits 0-63 of tod clock */
+		__uint128_t	: 40;
+		__uint128_t pf	: 16; /* programmable field */
+	};
+	struct {
+		__uint128_t eitod : 72; /* epoch index + bits 0-63 tod clock */
+		__uint128_t	  : 56;
+	};
+	struct {
+		__uint128_t us	: 60; /* micro-seconds */
+		__uint128_t sus	: 12; /* sub-microseconds */
+		__uint128_t	: 56;
+	};
+} __packed;
 
 /* Inline functions for clock register access. */
 static inline int set_tod_clock(__u64 time)
@@ -31,16 +51,21 @@ static inline int set_tod_clock(__u64 time)
 	return cc;
 }
 
-static inline int store_tod_clock(__u64 *time)
+static inline int store_tod_clock_ext_cc(union tod_clock *clk)
 {
 	int cc;
 
 	asm volatile(
-		"   stck  %1\n"
+		"   stcke  %1\n"
 		"   ipm   %0\n"
 		"   srl   %0,28\n"
-		: "=d" (cc), "=Q" (*time) : : "cc");
+		: "=d" (cc), "=Q" (*clk) : : "cc");
 	return cc;
+}
+
+static inline void store_tod_clock_ext(union tod_clock *tod)
+{
+	asm volatile("stcke %0" : "=Q" (*tod) : : "cc");
 }
 
 static inline void set_clock_comparator(__u64 time)
@@ -48,9 +73,11 @@ static inline void set_clock_comparator(__u64 time)
 	asm volatile("sckc %0" : : "Q" (time));
 }
 
-static inline void store_clock_comparator(__u64 *time)
+static inline void set_tod_programmable_field(u16 val)
 {
-	asm volatile("stckc %0" : "=Q" (*time));
+	register unsigned long reg0 asm("0") = val;
+
+	asm volatile("sckpf" : : "d" (reg0));
 }
 
 void clock_comparator_work(void);
@@ -141,23 +168,15 @@ static inline void local_tick_enable(unsigned long long comp)
 }
 
 #define CLOCK_TICK_RATE		1193180 /* Underlying HZ */
-#define STORE_CLOCK_EXT_SIZE	16	/* stcke writes 16 bytes */
 
 typedef unsigned long long cycles_t;
 
-static inline void get_tod_clock_ext(char *clk)
-{
-	typedef struct { char _[STORE_CLOCK_EXT_SIZE]; } addrtype;
-
-	asm volatile("stcke %0" : "=Q" (*(addrtype *) clk) : : "cc");
-}
-
 static inline unsigned long long get_tod_clock(void)
 {
-	unsigned char clk[STORE_CLOCK_EXT_SIZE];
+	union tod_clock clk;
 
-	get_tod_clock_ext(clk);
-	return *((unsigned long long *)&clk[1]);
+	store_tod_clock_ext(&clk);
+	return clk.tod;
 }
 
 static inline unsigned long long get_tod_clock_fast(void)
@@ -179,22 +198,24 @@ static inline cycles_t get_cycles(void)
 
 int get_phys_clock(unsigned long *clock);
 void init_cpu_timer(void);
-unsigned long long monotonic_clock(void);
 
-extern unsigned char tod_clock_base[16] __aligned(8);
+extern union tod_clock tod_clock_base;
 
 /**
  * get_clock_monotonic - returns current time in clock rate units
  *
- * The caller must ensure that preemption is disabled.
  * The clock and tod_clock_base get changed via stop_machine.
- * Therefore preemption must be disabled when calling this
- * function, otherwise the returned value is not guaranteed to
- * be monotonic.
+ * Therefore preemption must be disabled, otherwise the returned
+ * value is not guaranteed to be monotonic.
  */
 static inline unsigned long long get_tod_clock_monotonic(void)
 {
-	return get_tod_clock() - *(unsigned long long *) &tod_clock_base[1];
+	unsigned long long tod;
+
+	preempt_disable_notrace();
+	tod = get_tod_clock() - tod_clock_base.tod;
+	preempt_enable_notrace();
+	return tod;
 }
 
 /**

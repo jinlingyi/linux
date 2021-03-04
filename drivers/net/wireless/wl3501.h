@@ -231,7 +231,7 @@ struct iw_mgmt_info_element {
 	u8 id; /* one of enum iw_mgmt_info_element_ids,
 		  but sizeof(enum) > sizeof(u8) :-( */
 	u8 len;
-	u8 data[0];
+	u8 data[];
 } __packed;
 
 struct iw_mgmt_essid_pset {
@@ -550,7 +550,7 @@ struct wl3501_80211_tx_plcp_hdr {
 struct wl3501_80211_tx_hdr {
 	struct wl3501_80211_tx_plcp_hdr	pclp_hdr;
 	struct ieee80211_hdr		mac_hdr;
-} __packed;
+} __packed __aligned(2);
 
 /*
    Reserve the beginning Tx space for descriptor use.

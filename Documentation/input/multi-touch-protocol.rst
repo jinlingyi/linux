@@ -23,7 +23,7 @@ devices capable of tracking identifiable contacts (type B), the protocol
 describes how to send updates for individual contacts via event slots.
 
 .. note::
-   MT potocol type A is obsolete, all kernel drivers have been
+   MT protocol type A is obsolete, all kernel drivers have been
    converted to use type B.
 
 Protocol Usage
@@ -259,6 +259,10 @@ ABS_MT_PRESSURE
     The pressure, in arbitrary units, on the contact area. May be used instead
     of TOUCH and WIDTH for pressure-based devices or any device with a spatial
     signal intensity distribution.
+
+    If the resolution is zero, the pressure data is in arbitrary units.
+    If the resolution is nonzero, the pressure data is in units/gram. See
+    :ref:`input-event-codes` for details.
 
 ABS_MT_DISTANCE
     The distance, in surface units, between the contact and the surface. Zero

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0
+/* SPDX-License-Identifier: GPL-2.0 */
 // Copyright (C) 2005-2017 Andes Technology Corporation
 
 #ifndef _ASMANDES_UACCESS_H
@@ -11,7 +11,6 @@
 #include <asm/errno.h>
 #include <asm/memory.h>
 #include <asm/types.h>
-#include <linux/mm.h>
 
 #define __asmeq(x, y)  ".ifnc " x "," y " ; .err ; .endif\n\t"
 
@@ -37,7 +36,6 @@ extern int fixup_exception(struct pt_regs *regs);
 #define KERNEL_DS 	((mm_segment_t) { ~0UL })
 #define USER_DS		((mm_segment_t) {TASK_SIZE - 1})
 
-#define get_ds()	(KERNEL_DS)
 #define get_fs()	(current_thread_info()->addr_limit)
 #define user_addr_max	get_fs
 
@@ -46,7 +44,7 @@ static inline void set_fs(mm_segment_t fs)
 	current_thread_info()->addr_limit = fs;
 }
 
-#define segment_eq(a, b)	((a) == (b))
+#define uaccess_kernel()	(get_fs() == KERNEL_DS)
 
 #define __range_ok(addr, size) (size <= get_fs() && addr <= (get_fs() -size))
 

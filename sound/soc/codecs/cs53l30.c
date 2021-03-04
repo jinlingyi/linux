@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * cs53l30.c  --  CS53l30 ALSA Soc Audio driver
  *
@@ -5,11 +6,6 @@
  *
  * Authors: Paul Handrigan <Paul.Handrigan@cirrus.com>,
  *          Tim Howe <Tim.Howe@cirrus.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
  */
 
 #include <linux/clk.h>
@@ -873,7 +869,7 @@ static struct snd_soc_dai_driver cs53l30_dai = {
 		.formats = CS53L30_FORMATS,
 	},
 	.ops = &cs53l30_ops,
-	.symmetric_rates = 1,
+	.symmetric_rate = 1,
 };
 
 static int cs53l30_component_probe(struct snd_soc_component *component)

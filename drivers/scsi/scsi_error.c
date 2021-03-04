@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  scsi_error.c Copyright (C) 1997 Eric Youngdale
  *
@@ -115,6 +116,25 @@ static int scsi_host_eh_past_deadline(struct Scsi_Host *shost)
 	return 1;
 }
 
+static bool scsi_cmd_retry_allowed(struct scsi_cmnd *cmd)
+{
+	if (cmd->allowed == SCSI_CMD_RETRIES_NO_LIMIT)
+		return true;
+
+	return ++cmd->retries <= cmd->allowed;
+}
+
+static bool scsi_eh_should_retry_cmd(struct scsi_cmnd *cmd)
+{
+	struct scsi_device *sdev = cmd->device;
+	struct Scsi_Host *host = sdev->host;
+
+	if (host->hostt->eh_should_retry_cmd)
+		return  host->hostt->eh_should_retry_cmd(cmd);
+
+	return true;
+}
+
 /**
  * scmd_eh_abort_handler - Handle command aborts
  * @work:	command to be aborted.
@@ -150,7 +170,8 @@ scmd_eh_abort_handler(struct work_struct *work)
 						    "eh timeout, not retrying "
 						    "aborted command\n"));
 			} else if (!scsi_noretry_cmd(scmd) &&
-			    (++scmd->retries <= scmd->allowed)) {
+				   scsi_cmd_retry_allowed(scmd) &&
+				scsi_eh_should_retry_cmd(scmd)) {
 				SCSI_LOG_ERROR_RECOVERY(3,
 					scmd_printk(KERN_WARNING, scmd,
 						    "retry aborted command\n"));
@@ -598,7 +619,7 @@ int scsi_check_sense(struct scsi_cmnd *scmd)
 			set_host_byte(scmd, DID_ALLOC_FAILURE);
 			return SUCCESS;
 		}
-		/* FALLTHROUGH */
+		fallthrough;
 	case COPY_ABORTED:
 	case VOLUME_OVERFLOW:
 	case MISCOMPARE:
@@ -620,7 +641,7 @@ int scsi_check_sense(struct scsi_cmnd *scmd)
 			return ADD_TO_MLQUEUE;
 		else
 			set_host_byte(scmd, DID_TARGET_FAILURE);
-		/* FALLTHROUGH */
+		fallthrough;
 
 	case ILLEGAL_REQUEST:
 		if (sshdr.asc == 0x20 || /* Invalid command operation code */
@@ -733,7 +754,7 @@ static int scsi_eh_completed_normally(struct scsi_cmnd *scmd)
 	switch (status_byte(scmd->result)) {
 	case GOOD:
 		scsi_handle_queue_ramp_up(scmd->device);
-		/* FALLTHROUGH */
+		fallthrough;
 	case COMMAND_TERMINATED:
 		return SUCCESS;
 	case CHECK_CONDITION:
@@ -754,7 +775,7 @@ static int scsi_eh_completed_normally(struct scsi_cmnd *scmd)
 		return FAILED;
 	case QUEUE_FULL:
 		scsi_handle_queue_full(scmd->device);
-		/* fall through */
+		fallthrough;
 	case BUSY:
 		return NEEDS_RETRY;
 	default:
@@ -965,8 +986,8 @@ void scsi_eh_prep_cmnd(struct scsi_cmnd *scmd, struct scsi_eh_save *ses,
 	ses->cmnd = scmd->cmnd;
 	ses->data_direction = scmd->sc_data_direction;
 	ses->sdb = scmd->sdb;
-	ses->next_rq = scmd->request->next_rq;
 	ses->result = scmd->result;
+	ses->resid_len = scmd->req.resid_len;
 	ses->underflow = scmd->underflow;
 	ses->prot_op = scmd->prot_op;
 	ses->eh_eflags = scmd->eh_eflags;
@@ -976,8 +997,8 @@ void scsi_eh_prep_cmnd(struct scsi_cmnd *scmd, struct scsi_eh_save *ses,
 	scmd->cmnd = ses->eh_cmnd;
 	memset(scmd->cmnd, 0, BLK_MAX_CDB);
 	memset(&scmd->sdb, 0, sizeof(scmd->sdb));
-	scmd->request->next_rq = NULL;
 	scmd->result = 0;
+	scmd->req.resid_len = 0;
 
 	if (sense_bytes) {
 		scmd->sdb.length = min_t(unsigned, SCSI_SENSE_BUFFERSIZE,
@@ -1029,8 +1050,8 @@ void scsi_eh_restore_cmnd(struct scsi_cmnd* scmd, struct scsi_eh_save *ses)
 	scmd->cmnd = ses->cmnd;
 	scmd->sc_data_direction = ses->data_direction;
 	scmd->sdb = ses->sdb;
-	scmd->request->next_rq = ses->next_rq;
 	scmd->result = ses->result;
+	scmd->req.resid_len = ses->resid_len;
 	scmd->underflow = ses->underflow;
 	scmd->prot_op = ses->prot_op;
 	scmd->eh_eflags = ses->eh_eflags;
@@ -1057,7 +1078,7 @@ static int scsi_send_eh_cmnd(struct scsi_cmnd *scmd, unsigned char *cmnd,
 	struct scsi_device *sdev = scmd->device;
 	struct Scsi_Host *shost = sdev->host;
 	DECLARE_COMPLETION_ONSTACK(done);
-	unsigned long timeleft = timeout;
+	unsigned long timeleft = timeout, delay;
 	struct scsi_eh_save ses;
 	const unsigned long stall_for = msecs_to_jiffies(100);
 	int rtn;
@@ -1068,7 +1089,29 @@ retry:
 
 	scsi_log_send(scmd);
 	scmd->scsi_done = scsi_eh_done;
-	rtn = shost->hostt->queuecommand(shost, scmd);
+
+	/*
+	 * Lock sdev->state_mutex to avoid that scsi_device_quiesce() can
+	 * change the SCSI device state after we have examined it and before
+	 * .queuecommand() is called.
+	 */
+	mutex_lock(&sdev->state_mutex);
+	while (sdev->sdev_state == SDEV_BLOCK && timeleft > 0) {
+		mutex_unlock(&sdev->state_mutex);
+		SCSI_LOG_ERROR_RECOVERY(5, sdev_printk(KERN_DEBUG, sdev,
+			"%s: state %d <> %d\n", __func__, sdev->sdev_state,
+			SDEV_BLOCK));
+		delay = min(timeleft, stall_for);
+		timeleft -= delay;
+		msleep(jiffies_to_msecs(delay));
+		mutex_lock(&sdev->state_mutex);
+	}
+	if (sdev->sdev_state != SDEV_BLOCK)
+		rtn = shost->hostt->queuecommand(shost, scmd);
+	else
+		rtn = SCSI_MLQUEUE_DEVICE_BUSY;
+	mutex_unlock(&sdev->state_mutex);
+
 	if (rtn) {
 		if (timeleft > stall_for) {
 			scsi_eh_restore_cmnd(scmd, &ses);
@@ -1241,11 +1284,18 @@ int scsi_eh_get_sense(struct list_head *work_q,
 		 * upper level.
 		 */
 		if (rtn == SUCCESS)
-			/* we don't want this command reissued, just
-			 * finished with the sense data, so set
-			 * retries to the max allowed to ensure it
-			 * won't get reissued */
-			scmd->retries = scmd->allowed;
+			/*
+			 * We don't want this command reissued, just finished
+			 * with the sense data, so set retries to the max
+			 * allowed to ensure it won't get reissued. If the user
+			 * has requested infinite retries, we also want to
+			 * finish this command, so force completion by setting
+			 * retries and allowed to the same value.
+			 */
+			if (scmd->allowed == SCSI_CMD_RETRIES_NO_LIMIT)
+				scmd->retries = scmd->allowed = 1;
+			else
+				scmd->retries = scmd->allowed;
 		else if (rtn != NEEDS_RETRY)
 			continue;
 
@@ -1279,7 +1329,7 @@ retry_tur:
 	case NEEDS_RETRY:
 		if (retry_cnt--)
 			goto retry_tur;
-		/*FALLTHRU*/
+		fallthrough;
 	case SUCCESS:
 		return 0;
 	default:
@@ -1389,6 +1439,7 @@ static int scsi_eh_stu(struct Scsi_Host *shost,
 				sdev_printk(KERN_INFO, sdev,
 					    "%s: skip START_UNIT, past eh deadline\n",
 					    current->comm));
+			scsi_device_put(sdev);
 			break;
 		}
 		stu_scmd = NULL;
@@ -1455,6 +1506,7 @@ static int scsi_eh_bus_device_reset(struct Scsi_Host *shost,
 				sdev_printk(KERN_INFO, sdev,
 					    "%s: skip BDR, past eh deadline\n",
 					     current->comm));
+			scsi_device_put(sdev);
 			break;
 		}
 		bdr_scmd = NULL;
@@ -1714,7 +1766,7 @@ int scsi_noretry_cmd(struct scsi_cmnd *scmd)
 		if (msg_byte(scmd->result) == COMMAND_COMPLETE &&
 		    status_byte(scmd->result) == RESERVATION_CONFLICT)
 			return 0;
-		/* fall through */
+		fallthrough;
 	case DID_SOFT_ERROR:
 		return (scmd->request->cmd_flags & REQ_FAILFAST_DRIVER);
 	}
@@ -1730,8 +1782,8 @@ check_type:
 	if (scmd->request->cmd_flags & REQ_FAILFAST_DEV ||
 	    blk_rq_is_passthrough(scmd->request))
 		return 1;
-	else
-		return 0;
+
+	return 0;
 }
 
 /**
@@ -1785,7 +1837,7 @@ int scsi_decide_disposition(struct scsi_cmnd *scmd)
 			set_host_byte(scmd, DID_TIME_OUT);
 			return SUCCESS;
 		}
-		/* FALLTHROUGH */
+		fallthrough;
 	case DID_NO_CONNECT:
 	case DID_BAD_TARGET:
 		/*
@@ -1821,6 +1873,12 @@ int scsi_decide_disposition(struct scsi_cmnd *scmd)
 		 * the fast io fail tmo fired), so send IO directly upwards.
 		 */
 		return SUCCESS;
+	case DID_TRANSPORT_MARGINAL:
+		/*
+		 * caller has decided not to do retries on
+		 * abort success, so send IO directly upwards
+		 */
+		return SUCCESS;
 	case DID_ERROR:
 		if (msg_byte(scmd->result) == COMMAND_COMPLETE &&
 		    status_byte(scmd->result) == RESERVATION_CONFLICT)
@@ -1829,7 +1887,7 @@ int scsi_decide_disposition(struct scsi_cmnd *scmd)
 			 * lower down
 			 */
 			break;
-		/* fallthrough */
+		fallthrough;
 	case DID_BUS_BUSY:
 	case DID_PARITY:
 		goto maybe_retry;
@@ -1867,7 +1925,7 @@ int scsi_decide_disposition(struct scsi_cmnd *scmd)
 		 * the case of trying to send too many commands to a
 		 * tagged queueing device.
 		 */
-		/* FALLTHROUGH */
+		fallthrough;
 	case BUSY:
 		/*
 		 * device can't talk to us at the moment.  Should only
@@ -1880,7 +1938,7 @@ int scsi_decide_disposition(struct scsi_cmnd *scmd)
 		if (scmd->cmnd[0] == REPORT_LUNS)
 			scmd->device->sdev_target->expecting_lun_change = 0;
 		scsi_handle_queue_ramp_up(scmd->device);
-		/* FALLTHROUGH */
+		fallthrough;
 	case COMMAND_TERMINATED:
 		return SUCCESS;
 	case TASK_ABORTED:
@@ -1919,8 +1977,7 @@ maybe_retry:
 	 * the request was not marked fast fail.  Note that above,
 	 * even if the request is marked fast fail, we still requeue
 	 * for queue congestion conditions (QUEUE_FULL or BUSY) */
-	if ((++scmd->retries) <= scmd->allowed
-	    && !scsi_noretry_cmd(scmd)) {
+	if (scsi_cmd_retry_allowed(scmd) && !scsi_noretry_cmd(scmd)) {
 		return NEEDS_RETRY;
 	} else {
 		/*
@@ -1968,7 +2025,7 @@ static void scsi_eh_lock_door(struct scsi_device *sdev)
 	req->timeout = 10 * HZ;
 	rq->retries = 5;
 
-	blk_execute_rq_nowait(req->q, NULL, req, 1, eh_lock_door_done);
+	blk_execute_rq_nowait(NULL, req, 1, eh_lock_door_done);
 }
 
 /**
@@ -2066,8 +2123,8 @@ void scsi_eh_flush_done_q(struct list_head *done_q)
 	list_for_each_entry_safe(scmd, next, done_q, eh_entry) {
 		list_del_init(&scmd->eh_entry);
 		if (scsi_device_online(scmd->device) &&
-		    !scsi_noretry_cmd(scmd) &&
-		    (++scmd->retries <= scmd->allowed)) {
+		    !scsi_noretry_cmd(scmd) && scsi_cmd_retry_allowed(scmd) &&
+			scsi_eh_should_retry_cmd(scmd)) {
 			SCSI_LOG_ERROR_RECOVERY(3,
 				scmd_printk(KERN_INFO, scmd,
 					     "%s: flush retry cmd\n",
@@ -2351,22 +2408,22 @@ scsi_ioctl_reset(struct scsi_device *dev, int __user *arg)
 		rtn = scsi_try_bus_device_reset(scmd);
 		if (rtn == SUCCESS || (val & SG_SCSI_RESET_NO_ESCALATE))
 			break;
-		/* FALLTHROUGH */
+		fallthrough;
 	case SG_SCSI_RESET_TARGET:
 		rtn = scsi_try_target_reset(scmd);
 		if (rtn == SUCCESS || (val & SG_SCSI_RESET_NO_ESCALATE))
 			break;
-		/* FALLTHROUGH */
+		fallthrough;
 	case SG_SCSI_RESET_BUS:
 		rtn = scsi_try_bus_reset(scmd);
 		if (rtn == SUCCESS || (val & SG_SCSI_RESET_NO_ESCALATE))
 			break;
-		/* FALLTHROUGH */
+		fallthrough;
 	case SG_SCSI_RESET_HOST:
 		rtn = scsi_try_host_reset(scmd);
 		if (rtn == SUCCESS)
 			break;
-		/* FALLTHROUGH */
+		fallthrough;
 	default:
 		rtn = FAILED;
 		break;
@@ -2389,14 +2446,12 @@ scsi_ioctl_reset(struct scsi_device *dev, int __user *arg)
 	wake_up(&shost->host_wait);
 	scsi_run_host_queues(shost);
 
-	scsi_put_command(scmd);
 	kfree(rq);
 
 out_put_autopm_host:
 	scsi_autopm_put_host(shost);
 	return error;
 }
-EXPORT_SYMBOL(scsi_ioctl_reset);
 
 bool scsi_command_normalize_sense(const struct scsi_cmnd *cmd,
 				  struct scsi_sense_hdr *sshdr)

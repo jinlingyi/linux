@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /* vcc.c: sun4v virtual channel concentrator
  *
  * Copyright (C) 2017 Oracle. All rights reserved.
@@ -604,6 +605,7 @@ static int vcc_probe(struct vio_dev *vdev, const struct vio_device_id *id)
 	port->index = vcc_table_add(port);
 	if (port->index == -1) {
 		pr_err("VCC: no more TTY indices left for allocation\n");
+		rv = -ENOMEM;
 		goto free_ldc;
 	}
 
@@ -679,9 +681,6 @@ static int vcc_remove(struct vio_dev *vdev)
 {
 	struct vcc_port *port = dev_get_drvdata(&vdev->dev);
 
-	if (!port)
-		return -ENODEV;
-
 	del_timer_sync(&port->rx_timer);
 	del_timer_sync(&port->tx_timer);
 
@@ -693,12 +692,9 @@ static int vcc_remove(struct vio_dev *vdev)
 		tty_vhangup(port->tty);
 
 	/* Get exclusive reference to VCC, ensures that there are no other
-	 * clients to this port
+	 * clients to this port. This cannot fail.
 	 */
-	port = vcc_get(port->index, true);
-
-	if (WARN_ON(!port))
-		return -ENODEV;
+	vcc_get(port->index, true);
 
 	tty_unregister_device(vcc_tty_driver, port->index);
 

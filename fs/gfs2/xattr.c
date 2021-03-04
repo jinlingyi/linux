@@ -1,10 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) Sistina Software, Inc.  1997-2003 All rights reserved.
  * Copyright (C) 2004-2006 Red Hat, Inc.  All rights reserved.
- *
- * This copyrighted material is made available to anyone wishing to use,
- * modify, copy, or redistribute it subject to the terms and conditions
- * of the GNU General Public License version 2.
  */
 
 #include <linux/slab.h>
@@ -73,6 +70,20 @@ static int ea_check_size(struct gfs2_sbd *sdp, unsigned int nsize, size_t dsize)
 	return 0;
 }
 
+static bool gfs2_eatype_valid(struct gfs2_sbd *sdp, u8 type)
+{
+	switch(sdp->sd_sb.sb_fs_format) {
+	case GFS2_FS_FORMAT_MAX:
+		return true;
+
+	case GFS2_FS_FORMAT_MIN:
+		return type <= GFS2_EATYPE_SECURITY;
+
+	default:
+		return false;
+	}
+}
+
 typedef int (*ea_call_t) (struct gfs2_inode *ip, struct buffer_head *bh,
 			  struct gfs2_ea_header *ea,
 			  struct gfs2_ea_header *prev, void *private);
@@ -80,6 +91,7 @@ typedef int (*ea_call_t) (struct gfs2_inode *ip, struct buffer_head *bh,
 static int ea_foreach_i(struct gfs2_inode *ip, struct buffer_head *bh,
 			ea_call_t ea_call, void *data)
 {
+	struct gfs2_sbd *sdp = GFS2_SB(&ip->i_inode);
 	struct gfs2_ea_header *ea, *prev = NULL;
 	int error = 0;
 
@@ -92,9 +104,8 @@ static int ea_foreach_i(struct gfs2_inode *ip, struct buffer_head *bh,
 		if (!(bh->b_data <= (char *)ea && (char *)GFS2_EA2NEXT(ea) <=
 						  bh->b_data + bh->b_size))
 			goto fail;
-		if (!GFS2_EATYPE_VALID(ea->ea_type))
+		if (!gfs2_eatype_valid(sdp, ea->ea_type))
 			goto fail;
-
 		error = ea_call(ip, bh, ea, prev, data);
 		if (error)
 			return error;
@@ -262,7 +273,8 @@ static int ea_dealloc_unstuffed(struct gfs2_inode *ip, struct buffer_head *bh,
 		return -EIO;
 	}
 
-	error = gfs2_glock_nq_init(rgd->rd_gl, LM_ST_EXCLUSIVE, 0, &rg_gh);
+	error = gfs2_glock_nq_init(rgd->rd_gl, LM_ST_EXCLUSIVE,
+				   LM_FLAG_NODE_SCOPE, &rg_gh);
 	if (error)
 		return error;
 
@@ -347,6 +359,7 @@ static int ea_list_i(struct gfs2_inode *ip, struct buffer_head *bh,
 		     struct gfs2_ea_header *ea, struct gfs2_ea_header *prev,
 		     void *private)
 {
+	struct gfs2_sbd *sdp = GFS2_SB(&ip->i_inode);
 	struct ea_list *ei = private;
 	struct gfs2_ea_request *er = ei->ei_er;
 	unsigned int ea_size;
@@ -356,6 +369,8 @@ static int ea_list_i(struct gfs2_inode *ip, struct buffer_head *bh,
 	if (ea->ea_type == GFS2_EATYPE_UNUSED)
 		return 0;
 
+	BUG_ON(ea->ea_type > GFS2_EATYPE_SECURITY &&
+	       sdp->sd_sb.sb_fs_format == GFS2_FS_FORMAT_MIN);
 	switch (ea->ea_type) {
 	case GFS2_EATYPE_USR:
 		prefix = "user.";
@@ -369,8 +384,12 @@ static int ea_list_i(struct gfs2_inode *ip, struct buffer_head *bh,
 		prefix = "security.";
 		l = 9;
 		break;
+	case GFS2_EATYPE_TRUSTED:
+		prefix = "trusted.";
+		l = 8;
+		break;
 	default:
-		BUG();
+		return 0;
 	}
 
 	ea_size = l + ea->ea_name_len + 1;
@@ -631,7 +650,7 @@ static int ea_alloc_blk(struct gfs2_inode *ip, struct buffer_head **bhp)
 	error = gfs2_alloc_blocks(ip, &block, &n, 0, NULL);
 	if (error)
 		return error;
-	gfs2_trans_add_unrevoke(sdp, block, 1);
+	gfs2_trans_remove_revoke(sdp, block, 1);
 	*bhp = gfs2_meta_new(ip->i_gl, block);
 	gfs2_trans_add_meta(ip->i_gl, *bhp);
 	gfs2_metatype_set(*bhp, GFS2_METATYPE_EA, GFS2_FORMAT_EA);
@@ -693,7 +712,7 @@ static int ea_write(struct gfs2_inode *ip, struct gfs2_ea_header *ea,
 			error = gfs2_alloc_blocks(ip, &block, &n, 0, NULL);
 			if (error)
 				return error;
-			gfs2_trans_add_unrevoke(sdp, block, 1);
+			gfs2_trans_remove_revoke(sdp, block, 1);
 			bh = gfs2_meta_new(ip->i_gl, block);
 			gfs2_trans_add_meta(ip->i_gl, bh);
 			gfs2_metatype_set(bh, GFS2_METATYPE_ED, GFS2_FORMAT_ED);
@@ -997,7 +1016,7 @@ static int ea_set_block(struct gfs2_inode *ip, struct gfs2_ea_request *er,
 		error = gfs2_alloc_blocks(ip, &blk, &n, 0, NULL);
 		if (error)
 			return error;
-		gfs2_trans_add_unrevoke(sdp, blk, 1);
+		gfs2_trans_remove_revoke(sdp, blk, 1);
 		indbh = gfs2_meta_new(ip->i_gl, blk);
 		gfs2_trans_add_meta(ip->i_gl, indbh);
 		gfs2_metatype_set(indbh, GFS2_METATYPE_IN, GFS2_FORMAT_IN);
@@ -1217,6 +1236,7 @@ int __gfs2_xattr_set(struct inode *inode, const char *name,
 }
 
 static int gfs2_xattr_set(const struct xattr_handler *handler,
+			  struct user_namespace *mnt_userns,
 			  struct dentry *unused, struct inode *inode,
 			  const char *name, const void *value,
 			  size_t size, int flags)
@@ -1225,7 +1245,7 @@ static int gfs2_xattr_set(const struct xattr_handler *handler,
 	struct gfs2_holder gh;
 	int ret;
 
-	ret = gfs2_rsqa_alloc(ip);
+	ret = gfs2_qa_get(ip);
 	if (ret)
 		return ret;
 
@@ -1234,15 +1254,19 @@ static int gfs2_xattr_set(const struct xattr_handler *handler,
 	if (!gfs2_glock_is_locked_by_me(ip->i_gl)) {
 		ret = gfs2_glock_nq_init(ip->i_gl, LM_ST_EXCLUSIVE, 0, &gh);
 		if (ret)
-			return ret;
+			goto out;
 	} else {
-		if (WARN_ON_ONCE(ip->i_gl->gl_state != LM_ST_EXCLUSIVE))
-			return -EIO;
+		if (WARN_ON_ONCE(ip->i_gl->gl_state != LM_ST_EXCLUSIVE)) {
+			ret = -EIO;
+			goto out;
+		}
 		gfs2_holder_mark_uninitialized(&gh);
 	}
 	ret = __gfs2_xattr_set(inode, name, value, size, flags, handler->flags);
 	if (gfs2_holder_initialized(&gh))
 		gfs2_glock_dq_uninit(&gh);
+out:
+	gfs2_qa_put(ip);
 	return ret;
 }
 
@@ -1384,7 +1408,8 @@ static int ea_dealloc_block(struct gfs2_inode *ip)
 		return -EIO;
 	}
 
-	error = gfs2_glock_nq_init(rgd->rd_gl, LM_ST_EXCLUSIVE, 0, &gh);
+	error = gfs2_glock_nq_init(rgd->rd_gl, LM_ST_EXCLUSIVE,
+				   LM_FLAG_NODE_SCOPE, &gh);
 	if (error)
 		return error;
 
@@ -1462,7 +1487,25 @@ static const struct xattr_handler gfs2_xattr_security_handler = {
 	.set    = gfs2_xattr_set,
 };
 
-const struct xattr_handler *gfs2_xattr_handlers[] = {
+static bool
+gfs2_xattr_trusted_list(struct dentry *dentry)
+{
+	return capable(CAP_SYS_ADMIN);
+}
+
+static const struct xattr_handler gfs2_xattr_trusted_handler = {
+	.prefix = XATTR_TRUSTED_PREFIX,
+	.flags  = GFS2_EATYPE_TRUSTED,
+	.list	= gfs2_xattr_trusted_list,
+	.get    = gfs2_xattr_get,
+	.set    = gfs2_xattr_set,
+};
+
+const struct xattr_handler *gfs2_xattr_handlers_max[] = {
+	/* GFS2_FS_FORMAT_MAX */
+	&gfs2_xattr_trusted_handler,
+
+	/* GFS2_FS_FORMAT_MIN */
 	&gfs2_xattr_user_handler,
 	&gfs2_xattr_security_handler,
 	&posix_acl_access_xattr_handler,
@@ -1470,3 +1513,4 @@ const struct xattr_handler *gfs2_xattr_handlers[] = {
 	NULL,
 };
 
+const struct xattr_handler **gfs2_xattr_handlers_min = gfs2_xattr_handlers_max + 1;

@@ -296,7 +296,7 @@ range_to_mtrr_with_hole(struct var_mtrr_state *state, unsigned long basek,
 			unsigned long sizek)
 {
 	unsigned long hole_basek, hole_sizek;
-	unsigned long second_basek, second_sizek;
+	unsigned long second_sizek;
 	unsigned long range0_basek, range0_sizek;
 	unsigned long range_basek, range_sizek;
 	unsigned long chunk_sizek;
@@ -304,7 +304,6 @@ range_to_mtrr_with_hole(struct var_mtrr_state *state, unsigned long basek,
 
 	hole_basek = 0;
 	hole_sizek = 0;
-	second_basek = 0;
 	second_sizek = 0;
 	chunk_sizek = state->chunk_sizek;
 	gran_sizek = state->gran_sizek;
@@ -538,9 +537,9 @@ static void __init print_out_mtrr_range_state(void)
 		if (!size_base)
 			continue;
 
-		size_base = to_size_factor(size_base, &size_factor),
+		size_base = to_size_factor(size_base, &size_factor);
 		start_base = range_state[i].base_pfn << (PAGE_SHIFT - 10);
-		start_base = to_size_factor(start_base, &start_factor),
+		start_base = to_size_factor(start_base, &start_factor);
 		type = range_state[i].type;
 
 		pr_debug("reg %d, base: %ld%cB, range: %ld%cB, type %s\n",

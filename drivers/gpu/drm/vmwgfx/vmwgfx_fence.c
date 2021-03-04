@@ -25,7 +25,8 @@
  *
  **************************************************************************/
 
-#include <drm/drmP.h>
+#include <linux/sched/signal.h>
+
 #include "vmwgfx_drv.h"
 
 #define VMW_FENCE_WRAP (1 << 31)
@@ -140,8 +141,7 @@ static bool vmw_fence_enable_signaling(struct dma_fence *f)
 	struct vmw_fence_manager *fman = fman_from_fence(fence);
 	struct vmw_private *dev_priv = fman->dev_priv;
 
-	u32 *fifo_mem = dev_priv->mmio_virt;
-	u32 seqno = vmw_mmio_read(fifo_mem + SVGA_FIFO_FENCE);
+	u32 seqno = vmw_fifo_mem_read(dev_priv, SVGA_FIFO_FENCE);
 	if (seqno - fence->base.seqno < VMW_FENCE_WRAP)
 		return false;
 
@@ -183,6 +183,9 @@ static long vmw_fence_wait(struct dma_fence *f, bool intr, signed long timeout)
 	vmw_seqno_waiter_add(dev_priv);
 
 	spin_lock(f->lock);
+
+	if (test_bit(DMA_FENCE_FLAG_SIGNALED_BIT, &f->flags))
+		goto out;
 
 	if (intr && signal_pending(current)) {
 		ret = -ERESTARTSYS;
@@ -397,14 +400,12 @@ static bool vmw_fence_goal_new_locked(struct vmw_fence_manager *fman,
 				      u32 passed_seqno)
 {
 	u32 goal_seqno;
-	u32 *fifo_mem;
 	struct vmw_fence_obj *fence;
 
 	if (likely(!fman->seqno_valid))
 		return false;
 
-	fifo_mem = fman->dev_priv->mmio_virt;
-	goal_seqno = vmw_mmio_read(fifo_mem + SVGA_FIFO_FENCE_GOAL);
+	goal_seqno = vmw_fifo_mem_read(fman->dev_priv, SVGA_FIFO_FENCE_GOAL);
 	if (likely(passed_seqno - goal_seqno >= VMW_FENCE_WRAP))
 		return false;
 
@@ -412,8 +413,9 @@ static bool vmw_fence_goal_new_locked(struct vmw_fence_manager *fman,
 	list_for_each_entry(fence, &fman->fence_list, head) {
 		if (!list_empty(&fence->seq_passed_actions)) {
 			fman->seqno_valid = true;
-			vmw_mmio_write(fence->base.seqno,
-				       fifo_mem + SVGA_FIFO_FENCE_GOAL);
+			vmw_fifo_mem_write(fman->dev_priv,
+					   SVGA_FIFO_FENCE_GOAL,
+					   fence->base.seqno);
 			break;
 		}
 	}
@@ -441,18 +443,17 @@ static bool vmw_fence_goal_check_locked(struct vmw_fence_obj *fence)
 {
 	struct vmw_fence_manager *fman = fman_from_fence(fence);
 	u32 goal_seqno;
-	u32 *fifo_mem;
 
 	if (dma_fence_is_signaled_locked(&fence->base))
 		return false;
 
-	fifo_mem = fman->dev_priv->mmio_virt;
-	goal_seqno = vmw_mmio_read(fifo_mem + SVGA_FIFO_FENCE_GOAL);
+	goal_seqno = vmw_fifo_mem_read(fman->dev_priv, SVGA_FIFO_FENCE_GOAL);
 	if (likely(fman->seqno_valid &&
 		   goal_seqno - fence->base.seqno < VMW_FENCE_WRAP))
 		return false;
 
-	vmw_mmio_write(fence->base.seqno, fifo_mem + SVGA_FIFO_FENCE_GOAL);
+	vmw_fifo_mem_write(fman->dev_priv, SVGA_FIFO_FENCE_GOAL,
+			   fence->base.seqno);
 	fman->seqno_valid = true;
 
 	return true;
@@ -464,9 +465,8 @@ static void __vmw_fences_update(struct vmw_fence_manager *fman)
 	struct list_head action_list;
 	bool needs_rerun;
 	uint32_t seqno, new_seqno;
-	u32 *fifo_mem = fman->dev_priv->mmio_virt;
 
-	seqno = vmw_mmio_read(fifo_mem + SVGA_FIFO_FENCE);
+	seqno = vmw_fifo_mem_read(fman->dev_priv, SVGA_FIFO_FENCE);
 rerun:
 	list_for_each_entry_safe(fence, next_fence, &fman->fence_list, head) {
 		if (seqno - fence->base.seqno < VMW_FENCE_WRAP) {
@@ -488,7 +488,7 @@ rerun:
 
 	needs_rerun = vmw_fence_goal_new_locked(fman, seqno);
 	if (unlikely(needs_rerun)) {
-		new_seqno = vmw_mmio_read(fifo_mem + SVGA_FIFO_FENCE);
+		new_seqno = vmw_fifo_mem_read(fman->dev_priv, SVGA_FIFO_FENCE);
 		if (new_seqno != seqno) {
 			seqno = new_seqno;
 			goto rerun;
@@ -511,7 +511,7 @@ bool vmw_fence_obj_signaled(struct vmw_fence_obj *fence)
 	struct vmw_fence_manager *fman = fman_from_fence(fence);
 
 	if (test_bit(DMA_FENCE_FLAG_SIGNALED_BIT, &fence->base.flags))
-		return 1;
+		return true;
 
 	vmw_fences_update(fman);
 
@@ -1029,7 +1029,7 @@ int vmw_event_fence_action_queue(struct drm_file *file_priv,
 	eaction->action.type = VMW_ACTION_EVENT;
 
 	eaction->fence = vmw_fence_obj_reference(fence);
-	eaction->dev = fman->dev_priv->dev;
+	eaction->dev = &fman->dev_priv->drm;
 	eaction->tv_sec = tv_sec;
 	eaction->tv_usec = tv_usec;
 
@@ -1051,7 +1051,7 @@ static int vmw_event_fence_action_create(struct drm_file *file_priv,
 {
 	struct vmw_event_fence_pending *event;
 	struct vmw_fence_manager *fman = fman_from_fence(fence);
-	struct drm_device *dev = fman->dev_priv->dev;
+	struct drm_device *dev = &fman->dev_priv->drm;
 	int ret;
 
 	event = kzalloc(sizeof(*event), GFP_KERNEL);

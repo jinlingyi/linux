@@ -2,7 +2,7 @@
  * Support for configuration of IO Delay module found on Texas Instruments SoCs
  * such as DRA7
  *
- * Copyright (C) 2015-2017 Texas Instruments Incorporated - http://www.ti.com/
+ * Copyright (C) 2015-2017 Texas Instruments Incorporated - https://www.ti.com/
  *
  * This file is licensed under the terms of the GNU General Public
  * License version 2. This program is licensed "as is" without any
@@ -263,9 +263,9 @@ static int ti_iodelay_pinconf_set(struct ti_iodelay_device *iod,
 	reg_val |= reg->unlock_val << __ffs(reg->lock_mask);
 	r = regmap_update_bits(iod->regmap, cfg->offset, reg_mask, reg_val);
 
-	dev_info(dev, "Set reg 0x%x Delay(a: %d g: %d), Elements(C=%d F=%d)0x%x\n",
-		 cfg->offset, cfg->a_delay, cfg->g_delay, c_elements,
-		 f_elements, reg_val);
+	dev_dbg(dev, "Set reg 0x%x Delay(a: %d g: %d), Elements(C=%d F=%d)0x%x\n",
+		cfg->offset, cfg->a_delay, cfg->g_delay, c_elements,
+		f_elements, reg_val);
 
 	return r;
 }
@@ -496,7 +496,7 @@ static int ti_iodelay_dt_node_to_map(struct pinctrl_dev *pctldev,
 		return -EINVAL;
 
 	rows = pinctrl_count_index_with_args(np, name);
-	if (rows == -EINVAL)
+	if (rows < 0)
 		return rows;
 
 	*map = devm_kzalloc(iod->dev, sizeof(**map), GFP_KERNEL);
@@ -704,10 +704,9 @@ static void ti_iodelay_pinconf_group_dbg_show(struct pinctrl_dev *pctldev,
 		u32 reg = 0;
 
 		cfg = &group->cfg[i];
-		regmap_read(iod->regmap, cfg->offset, &reg),
-			seq_printf(s, "\n\t0x%08x = 0x%08x (%3d, %3d)",
-				   cfg->offset, reg, cfg->a_delay,
-				   cfg->g_delay);
+		regmap_read(iod->regmap, cfg->offset, &reg);
+		seq_printf(s, "\n\t0x%08x = 0x%08x (%3d, %3d)",
+			cfg->offset, reg, cfg->a_delay, cfg->g_delay);
 	}
 }
 #endif
@@ -923,7 +922,6 @@ static struct platform_driver ti_iodelay_driver = {
 	.probe = ti_iodelay_probe,
 	.remove = ti_iodelay_remove,
 	.driver = {
-		   .owner = THIS_MODULE,
 		   .name = DRIVER_NAME,
 		   .of_match_table = ti_iodelay_of_match,
 	},

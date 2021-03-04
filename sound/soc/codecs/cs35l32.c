@@ -1,14 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * cs35l32.c -- CS35L32 ALSA SoC audio driver
  *
  * Copyright 2014 CirrusLogic, Inc.
  *
  * Author: Brian Austin <brian.austin@cirrus.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
  */
 
 #include <linux/module.h>
@@ -198,7 +194,7 @@ static struct snd_soc_dai_driver cs35l32_dai[] = {
 			.formats = CS35L32_FORMATS,
 		},
 		.ops = &cs35l32_ops,
-		.symmetric_rates = 1,
+		.symmetric_rate = 1,
 	}
 };
 

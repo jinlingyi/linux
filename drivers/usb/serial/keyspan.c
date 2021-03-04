@@ -49,7 +49,7 @@ static int keyspan_startup(struct usb_serial *serial);
 static void keyspan_disconnect(struct usb_serial *serial);
 static void keyspan_release(struct usb_serial *serial);
 static int keyspan_port_probe(struct usb_serial_port *port);
-static int keyspan_port_remove(struct usb_serial_port *port);
+static void keyspan_port_remove(struct usb_serial_port *port);
 static int keyspan_write_room(struct tty_struct *tty);
 static int keyspan_write(struct tty_struct *tty, struct usb_serial_port *port,
 			 const unsigned char *buf, int count);
@@ -1058,6 +1058,8 @@ static void	usa49_glocont_callback(struct urb *urb)
 	for (i = 0; i < serial->num_ports; ++i) {
 		port = serial->port[i];
 		p_priv = usb_get_serial_port_data(port);
+		if (!p_priv)
+			continue;
 
 		if (p_priv->resend_cont) {
 			dev_dbg(&port->dev, "%s - sending setup\n", __func__);
@@ -1459,6 +1461,8 @@ static void usa67_glocont_callback(struct urb *urb)
 	for (i = 0; i < serial->num_ports; ++i) {
 		port = serial->port[i];
 		p_priv = usb_get_serial_port_data(port);
+		if (!p_priv)
+			continue;
 
 		if (p_priv->resend_cont) {
 			dev_dbg(&port->dev, "%s - sending setup\n", __func__);
@@ -1741,8 +1745,8 @@ static struct urb *keyspan_setup_urb(struct usb_serial *serial, int endpoint,
 
 	ep_desc = find_ep(serial, endpoint);
 	if (!ep_desc) {
-		/* leak the urb, something's wrong and the callers don't care */
-		return urb;
+		usb_free_urb(urb);
+		return NULL;
 	}
 	if (usb_endpoint_xfer_int(ep_desc)) {
 		ep_type_name = "INT";
@@ -2981,7 +2985,7 @@ err_in_buffer:
 	return -ENOMEM;
 }
 
-static int keyspan_port_remove(struct usb_serial_port *port)
+static void keyspan_port_remove(struct usb_serial_port *port)
 {
 	struct keyspan_port_private *p_priv;
 	int i;
@@ -3010,8 +3014,6 @@ static int keyspan_port_remove(struct usb_serial_port *port)
 		kfree(p_priv->in_buffer[i]);
 
 	kfree(p_priv);
-
-	return 0;
 }
 
 /* Structs for the devices, pre and post renumeration. */

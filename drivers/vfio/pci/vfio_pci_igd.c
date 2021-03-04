@@ -1,12 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * VFIO PCI Intel Graphics support
  *
  * Copyright (C) 2016 Red Hat, Inc.  All rights reserved.
  *	Author: Alex Williamson <alex.williamson@redhat.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  *
  * Register a device specific region through which to provide read-only
  * access to the Intel IGD opregion.  The register defining the opregion
@@ -130,7 +127,7 @@ static size_t vfio_pci_igd_cfg_rw(struct vfio_pci_device *vdev,
 
 		ret = pci_user_read_config_byte(pdev, pos, &val);
 		if (ret)
-			return pcibios_err_to_errno(ret);
+			return ret;
 
 		if (copy_to_user(buf + count - size, &val, 1))
 			return -EFAULT;
@@ -144,7 +141,7 @@ static size_t vfio_pci_igd_cfg_rw(struct vfio_pci_device *vdev,
 
 		ret = pci_user_read_config_word(pdev, pos, &val);
 		if (ret)
-			return pcibios_err_to_errno(ret);
+			return ret;
 
 		val = cpu_to_le16(val);
 		if (copy_to_user(buf + count - size, &val, 2))
@@ -159,7 +156,7 @@ static size_t vfio_pci_igd_cfg_rw(struct vfio_pci_device *vdev,
 
 		ret = pci_user_read_config_dword(pdev, pos, &val);
 		if (ret)
-			return pcibios_err_to_errno(ret);
+			return ret;
 
 		val = cpu_to_le32(val);
 		if (copy_to_user(buf + count - size, &val, 4))
@@ -174,7 +171,7 @@ static size_t vfio_pci_igd_cfg_rw(struct vfio_pci_device *vdev,
 
 		ret = pci_user_read_config_word(pdev, pos, &val);
 		if (ret)
-			return pcibios_err_to_errno(ret);
+			return ret;
 
 		val = cpu_to_le16(val);
 		if (copy_to_user(buf + count - size, &val, 2))
@@ -189,7 +186,7 @@ static size_t vfio_pci_igd_cfg_rw(struct vfio_pci_device *vdev,
 
 		ret = pci_user_read_config_byte(pdev, pos, &val);
 		if (ret)
-			return pcibios_err_to_errno(ret);
+			return ret;
 
 		if (copy_to_user(buf + count - size, &val, 1))
 			return -EFAULT;

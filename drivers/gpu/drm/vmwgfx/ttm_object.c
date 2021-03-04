@@ -59,7 +59,6 @@
 
 #define pr_fmt(fmt) "[TTM] " fmt
 
-#include <drm/ttm/ttm_module.h>
 #include <linux/list.h>
 #include <linux/spinlock.h>
 #include <linux/slab.h>
@@ -174,7 +173,7 @@ int ttm_base_object_init(struct ttm_object_file *tfile,
 	kref_init(&base->refcount);
 	idr_preload(GFP_KERNEL);
 	spin_lock(&tdev->object_lock);
-	ret = idr_alloc(&tdev->idr, base, 0, 0, GFP_NOWAIT);
+	ret = idr_alloc(&tdev->idr, base, 1, 0, GFP_NOWAIT);
 	spin_unlock(&tdev->object_lock);
 	idr_preload_end();
 	if (ret < 0)

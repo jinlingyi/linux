@@ -270,6 +270,10 @@ static void usb_wwan_indat_callback(struct urb *urb)
 	if (status) {
 		dev_dbg(dev, "%s: nonzero status: %d on endpoint %02x.\n",
 			__func__, status, endpoint);
+
+		/* don't resubmit on fatal errors */
+		if (status == -ESHUTDOWN || status == -ENOENT)
+			return;
 	} else {
 		if (urb->actual_length) {
 			tty_insert_flip_string(&port->port, data,
@@ -461,6 +465,7 @@ static struct urb *usb_wwan_setup_urb(struct usb_serial_port *port,
 				      void (*callback) (struct urb *))
 {
 	struct usb_serial *serial = port->serial;
+	struct usb_wwan_intf_private *intfdata = usb_get_serial_data(serial);
 	struct urb *urb;
 
 	urb = usb_alloc_urb(0, GFP_KERNEL);	/* No ISO */
@@ -470,6 +475,9 @@ static struct urb *usb_wwan_setup_urb(struct usb_serial_port *port,
 	usb_fill_bulk_urb(urb, serial->dev,
 			  usb_sndbulkpipe(serial->dev, endpoint) | dir,
 			  buf, len, callback, ctx);
+
+	if (intfdata->use_zlp && dir == USB_DIR_OUT)
+		urb->transfer_flags |= URB_ZERO_PACKET;
 
 	return urb;
 }
@@ -536,7 +544,7 @@ bail_out_error:
 }
 EXPORT_SYMBOL_GPL(usb_wwan_port_probe);
 
-int usb_wwan_port_remove(struct usb_serial_port *port)
+void usb_wwan_port_remove(struct usb_serial_port *port)
 {
 	int i;
 	struct usb_wwan_port_private *portdata;
@@ -554,8 +562,6 @@ int usb_wwan_port_remove(struct usb_serial_port *port)
 	}
 
 	kfree(portdata);
-
-	return 0;
 }
 EXPORT_SYMBOL(usb_wwan_port_remove);
 

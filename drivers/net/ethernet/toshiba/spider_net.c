@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Network device driver for Cell Processor-Based Blade and Celleb platform
  *
@@ -6,20 +7,6 @@
  *
  * Authors : Utz Bacher <utz.bacher@de.ibm.com>
  *           Jens Osterkamp <Jens.Osterkamp@de.ibm.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 #include <linux/compiler.h>
@@ -267,7 +254,7 @@ spider_net_set_promisc(struct spider_net_card *card)
 
 /**
  * spider_net_get_descr_status -- returns the status of a descriptor
- * @descr: descriptor to look at
+ * @hwdescr: descriptor to look at
  *
  * returns the status as in the dmac_cmd_status field of the descriptor
  */
@@ -296,8 +283,8 @@ spider_net_free_chain(struct spider_net_card *card,
 		descr = descr->next;
 	} while (descr != chain->ring);
 
-	dma_free_coherent(&card->pdev->dev, chain->num_desc,
-	    chain->hwring, chain->dma_addr);
+	dma_free_coherent(&card->pdev->dev, chain->num_desc * sizeof(struct spider_net_hw_descr),
+			  chain->hwring, chain->dma_addr);
 }
 
 /**
@@ -326,8 +313,6 @@ spider_net_init_chain(struct spider_net_card *card,
 					   &chain->dma_addr, GFP_KERNEL);
 	if (!chain->hwring)
 		return -ENOMEM;
-
-	memset(chain->ring, 0, chain->num_desc * sizeof(struct spider_net_descr));
 
 	/* Set up the hardware pointers in each descriptor */
 	descr = chain->ring;
@@ -557,6 +542,7 @@ error:
 
 /**
  * spider_net_get_multicast_hash - generates hash for multicast filter table
+ * @netdev: interface device structure
  * @addr: multicast address
  *
  * returns the hash value.
@@ -801,6 +787,7 @@ spider_net_release_tx_chain(struct spider_net_card *card, int brutal)
 			/* fallthrough, if we release the descriptors
 			 * brutally (then we don't care about
 			 * SPIDER_NET_DESCR_CARDOWNED) */
+			fallthrough;
 
 		case SPIDER_NET_DESCR_RESPONSE_ERROR:
 		case SPIDER_NET_DESCR_PROTECTION_ERROR:
@@ -904,7 +891,7 @@ spider_net_xmit(struct sk_buff *skb, struct net_device *netdev)
 
 /**
  * spider_net_cleanup_tx_ring - cleans up the TX ring
- * @card: card structure
+ * @t: timer context used to obtain the pointer to net card data structure
  *
  * spider_net_cleanup_tx_ring is called by either the tx_timer
  * or from the NAPI polling routine.
@@ -1077,6 +1064,7 @@ static void show_rx_chain(struct spider_net_card *card)
 
 /**
  * spider_net_resync_head_ptr - Advance head ptr past empty descrs
+ * @card: card structure
  *
  * If the driver fails to keep up and empty the queue, then the
  * hardware wil run out of room to put incoming packets. This
@@ -1234,7 +1222,7 @@ bad_desc:
 
 /**
  * spider_net_poll - NAPI poll function called by the stack to return packets
- * @netdev: interface device structure
+ * @napi: napi device structure
  * @budget: number of packets we can pass to the stack at most
  *
  * returns 0 if no more packets available to the driver/stack. Returns 1,
@@ -1282,7 +1270,7 @@ static int spider_net_poll(struct napi_struct *napi, int budget)
 /**
  * spider_net_set_mac - sets the MAC of an interface
  * @netdev: interface device structure
- * @ptr: pointer to new MAC address
+ * @p: pointer to new MAC address
  *
  * Returns 0 on success, <0 on failure. Currently, we don't support this
  * and will always return EOPNOTSUPP.
@@ -1354,6 +1342,8 @@ spider_net_link_reset(struct net_device *netdev)
  * spider_net_handle_error_irq - handles errors raised by an interrupt
  * @card: card structure
  * @status_reg: interrupt status register 0 (GHIINT0STS)
+ * @error_reg1: interrupt status register 1 (GHIINT1STS)
+ * @error_reg2: interrupt status register 2 (GHIINT2STS)
  *
  * spider_net_handle_error_irq treats or ignores all error conditions
  * found when an interrupt is presented
@@ -1411,9 +1401,9 @@ spider_net_handle_error_irq(struct spider_net_card *card, u32 status_reg,
 		show_error = 0;
 		break;
 
-	case SPIDER_NET_GDDDEN0INT: /* fallthrough */
-	case SPIDER_NET_GDCDEN0INT: /* fallthrough */
-	case SPIDER_NET_GDBDEN0INT: /* fallthrough */
+	case SPIDER_NET_GDDDEN0INT:
+	case SPIDER_NET_GDCDEN0INT:
+	case SPIDER_NET_GDBDEN0INT:
 	case SPIDER_NET_GDADEN0INT:
 		/* someone has set RX_DMA_EN to 0 */
 		show_error = 0;
@@ -1463,10 +1453,10 @@ spider_net_handle_error_irq(struct spider_net_card *card, u32 status_reg,
 		 * Logging is not needed. */
 		show_error = 0;
 		break;
-	case SPIDER_NET_GRFDFLLINT: /* fallthrough */
-	case SPIDER_NET_GRFCFLLINT: /* fallthrough */
-	case SPIDER_NET_GRFBFLLINT: /* fallthrough */
-	case SPIDER_NET_GRFAFLLINT: /* fallthrough */
+	case SPIDER_NET_GRFDFLLINT:
+	case SPIDER_NET_GRFCFLLINT:
+	case SPIDER_NET_GRFBFLLINT:
+	case SPIDER_NET_GRFAFLLINT:
 	case SPIDER_NET_GRMFLLINT:
 		/* Could happen when rx chain is full */
 		if (card->ignore_rx_ramfull == 0) {
@@ -1487,9 +1477,9 @@ spider_net_handle_error_irq(struct spider_net_card *card, u32 status_reg,
 		break;
 
 	/* chain end */
-	case SPIDER_NET_GDDDCEINT: /* fallthrough */
-	case SPIDER_NET_GDCDCEINT: /* fallthrough */
-	case SPIDER_NET_GDBDCEINT: /* fallthrough */
+	case SPIDER_NET_GDDDCEINT:
+	case SPIDER_NET_GDCDCEINT:
+	case SPIDER_NET_GDBDCEINT:
 	case SPIDER_NET_GDADCEINT:
 		spider_net_resync_head_ptr(card);
 		spider_net_refill_rx_chain(card);
@@ -1500,9 +1490,9 @@ spider_net_handle_error_irq(struct spider_net_card *card, u32 status_reg,
 		break;
 
 	/* invalid descriptor */
-	case SPIDER_NET_GDDINVDINT: /* fallthrough */
-	case SPIDER_NET_GDCINVDINT: /* fallthrough */
-	case SPIDER_NET_GDBINVDINT: /* fallthrough */
+	case SPIDER_NET_GDDINVDINT:
+	case SPIDER_NET_GDCINVDINT:
+	case SPIDER_NET_GDBINVDINT:
 	case SPIDER_NET_GDAINVDINT:
 		/* Could happen when rx chain is full */
 		spider_net_resync_head_ptr(card);
@@ -1627,7 +1617,7 @@ spider_net_interrupt(int irq, void *ptr)
  * spider_net_poll_controller - artificial interrupt for netconsole etc.
  * @netdev: interface device structure
  *
- * see Documentation/networking/netconsole.txt
+ * see Documentation/networking/netconsole.rst
  */
 static void
 spider_net_poll_controller(struct net_device *netdev)
@@ -1975,8 +1965,7 @@ init_firmware_failed:
 
 /**
  * spider_net_link_phy
- * @data: used for pointer to card structure
- *
+ * @t: timer context used to obtain the pointer to net card data structure
  */
 static void spider_net_link_phy(struct timer_list *t)
 {
@@ -2154,7 +2143,7 @@ spider_net_stop(struct net_device *netdev)
 /**
  * spider_net_tx_timeout_task - task scheduled by the watchdog timeout
  * function (to be called not under interrupt status)
- * @data: data, is interface device structure
+ * @work: work context used to obtain the pointer to net card data structure
  *
  * called as task when tx hangs, resets interface (if interface is up)
  */
@@ -2188,11 +2177,12 @@ out:
 /**
  * spider_net_tx_timeout - called when the tx timeout watchdog kicks in.
  * @netdev: interface device structure
+ * @txqueue: unused
  *
  * called, if tx hangs. Schedules a task that resets the interface
  */
 static void
-spider_net_tx_timeout(struct net_device *netdev)
+spider_net_tx_timeout(struct net_device *netdev, unsigned int txqueue)
 {
 	struct spider_net_card *card;
 
@@ -2323,11 +2313,9 @@ spider_net_alloc_card(void)
 {
 	struct net_device *netdev;
 	struct spider_net_card *card;
-	size_t alloc_size;
 
-	alloc_size = sizeof(struct spider_net_card) +
-	   (tx_descriptors + rx_descriptors) * sizeof(struct spider_net_descr);
-	netdev = alloc_etherdev(alloc_size);
+	netdev = alloc_etherdev(struct_size(card, darray,
+					    tx_descriptors + rx_descriptors));
 	if (!netdev)
 		return NULL;
 
