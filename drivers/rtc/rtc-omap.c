@@ -25,6 +25,7 @@
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/rtc.h>
+#include <linux/rtc/rtc-omap.h>
 
 /*
  * The OMAP RTC is a year/month/day/hours/minutes/seconds BCD clock
@@ -746,12 +747,12 @@ static int omap_rtc_probe(struct platform_device *pdev)
 	}
 
 	rtc->irq_timer = platform_get_irq(pdev, 0);
-	if (rtc->irq_timer <= 0)
-		return -ENOENT;
+	if (rtc->irq_timer < 0)
+		return rtc->irq_timer;
 
 	rtc->irq_alarm = platform_get_irq(pdev, 1);
-	if (rtc->irq_alarm <= 0)
-		return -ENOENT;
+	if (rtc->irq_alarm < 0)
+		return rtc->irq_alarm;
 
 	rtc->clk = devm_clk_get(&pdev->dev, "ext-clk");
 	if (!IS_ERR(rtc->clk))
@@ -786,8 +787,7 @@ static int omap_rtc_probe(struct platform_device *pdev)
 	/* enable RTC functional clock */
 	if (rtc->type->has_32kclk_en) {
 		reg = rtc_read(rtc, OMAP_RTC_OSC_REG);
-		rtc_writel(rtc, OMAP_RTC_OSC_REG,
-				reg | OMAP_RTC_OSC_32KCLK_EN);
+		rtc_write(rtc, OMAP_RTC_OSC_REG, reg | OMAP_RTC_OSC_32KCLK_EN);
 	}
 
 	/* clear old status */
@@ -845,7 +845,7 @@ static int omap_rtc_probe(struct platform_device *pdev)
 		reg = rtc_read(rtc, OMAP_RTC_OSC_REG);
 		reg &= ~OMAP_RTC_OSC_OSC32K_GZ_DISABLE;
 		reg |= OMAP_RTC_OSC_32KCLK_EN | OMAP_RTC_OSC_SEL_32KCLK_SRC;
-		rtc_writel(rtc, OMAP_RTC_OSC_REG, reg);
+		rtc_write(rtc, OMAP_RTC_OSC_REG, reg);
 	}
 
 	rtc->type->lock(rtc);
@@ -911,7 +911,7 @@ err:
 	return ret;
 }
 
-static int omap_rtc_remove(struct platform_device *pdev)
+static void omap_rtc_remove(struct platform_device *pdev)
 {
 	struct omap_rtc *rtc = platform_get_drvdata(pdev);
 	u8 reg;
@@ -942,8 +942,6 @@ static int omap_rtc_remove(struct platform_device *pdev)
 	/* Disable the clock/module */
 	pm_runtime_put_sync(&pdev->dev);
 	pm_runtime_disable(&pdev->dev);
-
-	return 0;
 }
 
 static int __maybe_unused omap_rtc_suspend(struct device *dev)
@@ -1018,7 +1016,7 @@ static void omap_rtc_shutdown(struct platform_device *pdev)
 
 static struct platform_driver omap_rtc_driver = {
 	.probe		= omap_rtc_probe,
-	.remove		= omap_rtc_remove,
+	.remove_new	= omap_rtc_remove,
 	.shutdown	= omap_rtc_shutdown,
 	.driver		= {
 		.name	= "omap_rtc",
@@ -1030,6 +1028,5 @@ static struct platform_driver omap_rtc_driver = {
 
 module_platform_driver(omap_rtc_driver);
 
-MODULE_ALIAS("platform:omap_rtc");
 MODULE_AUTHOR("George G. Davis (and others)");
 MODULE_LICENSE("GPL");

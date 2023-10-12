@@ -29,7 +29,6 @@
 #include "link_encoder.h"
 #include "dcn20_link_encoder.h"
 #include "stream_encoder.h"
-#include "i2caux_interface.h"
 #include "dc_bios_types.h"
 
 #include "gpio_service_interface.h"
@@ -341,8 +340,7 @@ void enc2_hw_init(struct link_encoder *enc)
 	} else {
 		AUX_REG_WRITE(AUX_DPHY_RX_CONTROL0, 0x103d1110);
 
-		AUX_REG_WRITE(AUX_DPHY_TX_CONTROL, 0x21c4d);
-
+		AUX_REG_WRITE(AUX_DPHY_TX_CONTROL, 0x21c7a);
 	}
 
 	//AUX_DPHY_TX_REF_CONTROL'AUX_TX_REF_DIV HW default is 0x32;

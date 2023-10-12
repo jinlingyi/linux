@@ -1,8 +1,8 @@
 .. SPDX-License-Identifier: GPL-2.0
 
-=========================
-Linux and the Device Tree
-=========================
+========================
+Linux and the Devicetree
+========================
 
 The Linux usage model for device tree data
 
@@ -14,7 +14,7 @@ at devicetree.org\ [1]_.
 
 .. [1] https://www.devicetree.org/specifications/
 
-The "Open Firmware Device Tree", or simply Device Tree (DT), is a data
+The "Open Firmware Device Tree", or simply Devicetree (DT), is a data
 structure and language for describing hardware.  More specifically, it
 is a description of hardware that is readable by an operating system
 so that the operating system doesn't need to hard code details of the
@@ -415,6 +415,6 @@ When using the DT, this creates problems for of_platform_populate()
 because it must decide whether to register each node as either a
 platform_device or an amba_device.  This unfortunately complicates the
 device creation model a little bit, but the solution turns out not to
-be too invasive.  If a node is compatible with "arm,amba-primecell", then
+be too invasive.  If a node is compatible with "arm,primecell", then
 of_platform_populate() will register it as an amba_device instead of a
 platform_device.

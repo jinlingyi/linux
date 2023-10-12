@@ -45,8 +45,8 @@
 	reg_12p0_main: regulator-12p0-main {
 		compatible = "regulator-fixed";
 		regulator-name = "12V_MAIN";
-		regulator-min-microvolt = <5000000>;
-		regulator-max-microvolt = <5000000>;
+		regulator-min-microvolt = <12000000>;
+		regulator-max-microvolt = <12000000>;
 		regulator-always-on;
 	};
 
@@ -69,15 +69,6 @@
 	};
 
 	reg_gen_3p3: regulator-gen-3p3 {
-		compatible = "regulator-fixed";
-		vin-supply = <&reg_3p3_main>;
-		regulator-name = "GEN_3V3";
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-		regulator-always-on;
-	};
-
-	reg_3p3v: regulator-3p3v {
 		compatible = "regulator-fixed";
 		vin-supply = <&reg_3p3_main>;
 		regulator-name = "GEN_3V3";
@@ -186,7 +177,7 @@
 
 				port@2 {
 					reg = <2>;
-					label = "cpu";
+					phy-mode = "rev-rmii";
 					ethernet = <&fec1>;
 
 					fixed-link {
@@ -415,11 +406,11 @@
 		pinctrl-0 = <&pinctrl_codec1>;
 		reg = <0x18>;
 		#sound-dai-cells = <0>;
-		HPVDD-supply = <&reg_3p3v>;
-		SPRVDD-supply = <&reg_3p3v>;
-		SPLVDD-supply = <&reg_3p3v>;
-		AVDD-supply = <&reg_3p3v>;
-		IOVDD-supply = <&reg_3p3v>;
+		HPVDD-supply = <&reg_gen_3p3>;
+		SPRVDD-supply = <&reg_gen_3p3>;
+		SPLVDD-supply = <&reg_gen_3p3>;
+		AVDD-supply = <&reg_gen_3p3>;
+		IOVDD-supply = <&reg_gen_3p3>;
 		DVDD-supply = <&vgen4_reg>;
 		reset-gpios = <&gpio3 3 GPIO_ACTIVE_LOW>;
 	};
@@ -452,7 +443,7 @@
 	status = "okay";
 
 	usbhub: usbhub@2c {
-		compatible ="microchip,usb2513b";
+		compatible = "microchip,usb2513b";
 		pinctrl-names = "default";
 		pinctrl-0 = <&pinctrl_usbhub>;
 		reg = <0x2c>;
@@ -499,7 +490,7 @@
 	pinctrl-0 = <&pinctrl_uart2>;
 	status = "okay";
 
-	rave-sp {
+	mcu {
 		compatible = "zii,rave-sp-rdu2";
 		current-speed = <1000000>;
 		#address-cells = <1>;
@@ -560,10 +551,10 @@
 	pinctrl-0 = <&pinctrl_pcie0>;
 	reset-gpio = <&gpio1 3 GPIO_ACTIVE_LOW>;
 	clocks = <&clk IMX8MQ_CLK_PCIE1_ROOT>,
-	         <&clk IMX8MQ_CLK_PCIE1_AUX>,
+	         <&pcie0_refclk>,
 	         <&clk IMX8MQ_CLK_PCIE1_PHY>,
-	         <&pcie0_refclk>;
-	clock-names = "pcie", "pcie_aux", "pcie_phy", "pcie_bus";
+	         <&clk IMX8MQ_CLK_PCIE1_AUX>;
+	vph-supply = <&vgen5_reg>;
 	status = "okay";
 };
 
@@ -572,10 +563,10 @@
 	pinctrl-0 = <&pinctrl_pcie1>;
 	reset-gpio = <&gpio1 6 GPIO_ACTIVE_LOW>;
 	clocks = <&clk IMX8MQ_CLK_PCIE2_ROOT>,
-	         <&clk IMX8MQ_CLK_PCIE2_AUX>,
+	         <&pcie1_refclk>,
 	         <&clk IMX8MQ_CLK_PCIE2_PHY>,
-	         <&pcie1_refclk>;
-	clock-names = "pcie", "pcie_aux", "pcie_phy", "pcie_bus";
+	         <&clk IMX8MQ_CLK_PCIE2_AUX>;
+	vph-supply = <&vgen5_reg>;
 	status = "okay";
 };
 

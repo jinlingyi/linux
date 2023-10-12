@@ -36,18 +36,17 @@ properties:
     description: Reference to the GPIO connected to the XCLR pin, if any.
 
   port:
-    type: object
     additionalProperties: false
-    $ref: /schemas/graph.yaml#/properties/port
+    $ref: /schemas/graph.yaml#/$defs/port-base
 
     properties:
       endpoint:
-        type: object
+        $ref: /schemas/media/video-interfaces.yaml#
+        unevaluatedProperties: false
+
         properties:
-          data-lanes:
-            $ref: ../video-interfaces.yaml#/properties/data-lanes
-          link-frequencies:
-            $ref: ../video-interfaces.yaml#/properties/link-frequencies
+          data-lanes: true
+          link-frequencies: true
 
         required:
           - data-lanes
@@ -66,7 +65,7 @@ additionalProperties: false
 
 examples:
   - |
-    i2c0 {
+    i2c {
         #address-cells = <1>;
         #size-cells = <0>;
 
@@ -83,7 +82,7 @@ examples:
                 imx334: endpoint {
                     remote-endpoint = <&cam>;
                     data-lanes = <1 2 3 4>;
-                    link-frequencies = /bits/ 64 <891000000>;
+                    link-frequencies = /bits/ 64 <891000000 445500000>;
                 };
             };
         };

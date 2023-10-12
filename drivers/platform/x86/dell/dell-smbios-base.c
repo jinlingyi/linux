@@ -441,7 +441,7 @@ static ssize_t location_show(struct device *dev,
 
 	i = match_attribute(dev, attr);
 	if (i > 0)
-		return scnprintf(buf, PAGE_SIZE, "%08x", da_tokens[i].location);
+		return sysfs_emit(buf, "%08x", da_tokens[i].location);
 	return 0;
 }
 
@@ -455,7 +455,7 @@ static ssize_t value_show(struct device *dev,
 
 	i = match_attribute(dev, attr);
 	if (i > 0)
-		return scnprintf(buf, PAGE_SIZE, "%08x", da_tokens[i].value);
+		return sysfs_emit(buf, "%08x", da_tokens[i].value);
 	return 0;
 }
 
@@ -647,6 +647,6 @@ module_exit(dell_smbios_exit);
 MODULE_AUTHOR("Matthew Garrett <mjg@redhat.com>");
 MODULE_AUTHOR("Gabriele Mazzotta <gabriele.mzt@gmail.com>");
 MODULE_AUTHOR("Pali Rohár <pali@kernel.org>");
-MODULE_AUTHOR("Mario Limonciello <mario.limonciello@dell.com>");
+MODULE_AUTHOR("Mario Limonciello <mario.limonciello@outlook.com>");
 MODULE_DESCRIPTION("Common functions for kernel modules using Dell SMBIOS");
 MODULE_LICENSE("GPL");

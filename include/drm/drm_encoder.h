@@ -194,6 +194,12 @@ int drm_encoder_init(struct drm_device *dev,
 		     const struct drm_encoder_funcs *funcs,
 		     int encoder_type, const char *name, ...);
 
+__printf(5, 6)
+int drmm_encoder_init(struct drm_device *dev,
+		      struct drm_encoder *encoder,
+		      const struct drm_encoder_funcs *funcs,
+		      int encoder_type, const char *name, ...);
+
 __printf(6, 7)
 void *__drmm_encoder_alloc(struct drm_device *dev,
 			   size_t size, size_t offset,
@@ -223,6 +229,24 @@ void *__drmm_encoder_alloc(struct drm_device *dev,
 	((type *)__drmm_encoder_alloc(dev, sizeof(type), \
 				      offsetof(type, member), funcs, \
 				      encoder_type, name, ##__VA_ARGS__))
+
+/**
+ * drmm_plain_encoder_alloc - Allocate and initialize an encoder
+ * @dev: drm device
+ * @funcs: callbacks for this encoder (optional)
+ * @encoder_type: user visible type of the encoder
+ * @name: printf style format string for the encoder name, or NULL for default name
+ *
+ * This is a simplified version of drmm_encoder_alloc(), which only allocates
+ * and returns a struct drm_encoder instance, with no subclassing.
+ *
+ * Returns:
+ * Pointer to the new drm_encoder struct, or ERR_PTR on failure.
+ */
+#define drmm_plain_encoder_alloc(dev, funcs, encoder_type, name, ...) \
+	((struct drm_encoder *) \
+	 __drmm_encoder_alloc(dev, sizeof(struct drm_encoder), \
+			      0, funcs, encoder_type, name, ##__VA_ARGS__))
 
 /**
  * drm_encoder_index - find the index of a registered encoder

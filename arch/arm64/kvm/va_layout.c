@@ -169,7 +169,7 @@ void __init kvm_update_va_mask(struct alt_instr *alt,
 		 * dictates it and we don't have any spare bits in the
 		 * address), NOP everything after masking the kernel VA.
 		 */
-		if (has_vhe() || (!tag_val && i > 0)) {
+		if (cpus_have_cap(ARM64_HAS_VIRT_HOST_EXTN) || (!tag_val && i > 0)) {
 			updptr[i] = cpu_to_le32(aarch64_insn_gen_nop());
 			continue;
 		}
@@ -193,7 +193,8 @@ void kvm_patch_vector_branch(struct alt_instr *alt,
 
 	BUG_ON(nr_inst != 4);
 
-	if (!cpus_have_const_cap(ARM64_SPECTRE_V3A) || WARN_ON_ONCE(has_vhe()))
+	if (!cpus_have_cap(ARM64_SPECTRE_V3A) ||
+	    WARN_ON_ONCE(cpus_have_cap(ARM64_HAS_VIRT_HOST_EXTN)))
 		return;
 
 	/*
@@ -287,4 +288,11 @@ void kvm_get_kimage_voffset(struct alt_instr *alt,
 			    __le32 *origptr, __le32 *updptr, int nr_inst)
 {
 	generate_mov_q(kimage_voffset, origptr, updptr, nr_inst);
+}
+
+void kvm_compute_final_ctr_el0(struct alt_instr *alt,
+			       __le32 *origptr, __le32 *updptr, int nr_inst)
+{
+	generate_mov_q(read_sanitised_ftr_reg(SYS_CTR_EL0),
+		       origptr, updptr, nr_inst);
 }

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: (GPL-2.0 or MIT) */
+/* SPDX-License-Identifier: (GPL-2.0 OR MIT) */
 /*
  * DSA driver for:
  * Hirschmann Hellcreek TSN switch.
@@ -37,6 +37,7 @@
 #define HELLCREEK_VLAN_UNTAGGED_MEMBER	0x1
 #define HELLCREEK_VLAN_TAGGED_MEMBER	0x3
 #define HELLCREEK_NUM_EGRESS_QUEUES	8
+#define HELLCREEK_DEFAULT_MAX_SDU	1536
 
 /* Register definitions */
 #define HR_MODID_C			(0 * 2)
@@ -71,6 +72,12 @@
 #define HR_PRTCCFG			(0xa8 * 2)
 #define HR_PRTCCFG_PCP_TC_MAP_SHIFT	0
 #define HR_PRTCCFG_PCP_TC_MAP_MASK	GENMASK(2, 0)
+
+#define HR_PTPRTCCFG			(0xa9 * 2)
+#define HR_PTPRTCCFG_SET_QTRACK		BIT(15)
+#define HR_PTPRTCCFG_REJECT		BIT(14)
+#define HR_PTPRTCCFG_MAXSDU_SHIFT	0
+#define HR_PTPRTCCFG_MAXSDU_MASK	GENMASK(10, 0)
 
 #define HR_CSEL				(0x8d * 2)
 #define HR_CSEL_SHIFT			0
@@ -278,6 +285,8 @@ struct hellcreek {
 	struct mutex reg_lock;	/* Switch IP register lock */
 	struct mutex vlan_lock;	/* VLAN bitmaps lock */
 	struct mutex ptp_lock;	/* PTP IP register lock */
+	struct devlink_region *vlan_region;
+	struct devlink_region *fdb_region;
 	void __iomem *base;
 	void __iomem *ptp_base;
 	u16 swcfg;		/* swcfg shadow */
@@ -302,6 +311,11 @@ struct hellcreek {
 enum hellcreek_devlink_resource_id {
 	HELLCREEK_DEVLINK_PARAM_ID_VLAN_TABLE,
 	HELLCREEK_DEVLINK_PARAM_ID_FDB_TABLE,
+};
+
+struct hellcreek_devlink_vlan_entry {
+	u16 vid;
+	u16 member;
 };
 
 #endif /* _HELLCREEK_H_ */

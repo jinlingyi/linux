@@ -7,7 +7,8 @@
 
 #include <linux/mfd/atc260x/core.h>
 #include <linux/module.h>
-#include <linux/of_device.h>
+#include <linux/of.h>
+#include <linux/platform_device.h>
 #include <linux/regmap.h>
 #include <linux/regulator/driver.h>
 
@@ -28,12 +29,12 @@ static const struct linear_range atc2609a_dcdc_voltage_ranges[] = {
 
 static const struct linear_range atc2609a_ldo_voltage_ranges0[] = {
 	REGULATOR_LINEAR_RANGE(700000, 0, 15, 100000),
-	REGULATOR_LINEAR_RANGE(2100000, 16, 28, 100000),
+	REGULATOR_LINEAR_RANGE(2100000, 0, 12, 100000),
 };
 
 static const struct linear_range atc2609a_ldo_voltage_ranges1[] = {
 	REGULATOR_LINEAR_RANGE(850000, 0, 15, 100000),
-	REGULATOR_LINEAR_RANGE(2100000, 16, 27, 100000),
+	REGULATOR_LINEAR_RANGE(2100000, 0, 11, 100000),
 };
 
 static const unsigned int atc260x_ldo_voltage_range_sel[] = {
@@ -292,6 +293,7 @@ enum atc2603c_reg_ids {
 	.bypass_mask = BIT(5), \
 	.active_discharge_reg = ATC2603C_PMU_SWITCH_CTL, \
 	.active_discharge_mask = BIT(1), \
+	.active_discharge_on = BIT(1), \
 	.owner = THIS_MODULE, \
 }
 
@@ -411,7 +413,7 @@ enum atc2609a_reg_ids {
 	.owner = THIS_MODULE, \
 }
 
-#define atc2609a_reg_desc_ldo_range_pick(num, n_range) { \
+#define atc2609a_reg_desc_ldo_range_pick(num, n_range, n_volt) { \
 	.name = "LDO"#num, \
 	.supply_name = "ldo"#num, \
 	.of_match = of_match_ptr("ldo"#num), \
@@ -421,11 +423,12 @@ enum atc2609a_reg_ids {
 	.type = REGULATOR_VOLTAGE, \
 	.linear_ranges = atc2609a_ldo_voltage_ranges##n_range, \
 	.n_linear_ranges = ARRAY_SIZE(atc2609a_ldo_voltage_ranges##n_range), \
+	.n_voltages = n_volt, \
 	.vsel_reg = ATC2609A_PMU_LDO##num##_CTL0, \
 	.vsel_mask = GENMASK(4, 1), \
 	.vsel_range_reg = ATC2609A_PMU_LDO##num##_CTL0, \
 	.vsel_range_mask = BIT(5), \
-	.linear_range_selectors = atc260x_ldo_voltage_range_sel, \
+	.linear_range_selectors_bitfield = atc260x_ldo_voltage_range_sel, \
 	.enable_reg = ATC2609A_PMU_LDO##num##_CTL0, \
 	.enable_mask = BIT(0), \
 	.enable_time = 2000, \
@@ -458,12 +461,12 @@ static const struct regulator_desc atc2609a_reg[] = {
 	atc2609a_reg_desc_ldo_bypass(0),
 	atc2609a_reg_desc_ldo_bypass(1),
 	atc2609a_reg_desc_ldo_bypass(2),
-	atc2609a_reg_desc_ldo_range_pick(3, 0),
-	atc2609a_reg_desc_ldo_range_pick(4, 0),
+	atc2609a_reg_desc_ldo_range_pick(3, 0, 29),
+	atc2609a_reg_desc_ldo_range_pick(4, 0, 29),
 	atc2609a_reg_desc_ldo(5),
-	atc2609a_reg_desc_ldo_range_pick(6, 1),
-	atc2609a_reg_desc_ldo_range_pick(7, 0),
-	atc2609a_reg_desc_ldo_range_pick(8, 0),
+	atc2609a_reg_desc_ldo_range_pick(6, 1, 28),
+	atc2609a_reg_desc_ldo_range_pick(7, 0, 29),
+	atc2609a_reg_desc_ldo_range_pick(8, 0, 29),
 	atc2609a_reg_desc_ldo_fixed(9),
 };
 
@@ -528,6 +531,7 @@ static struct platform_driver atc260x_regulator_driver = {
 	.probe = atc260x_regulator_probe,
 	.driver = {
 		.name = "atc260x-regulator",
+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };
 

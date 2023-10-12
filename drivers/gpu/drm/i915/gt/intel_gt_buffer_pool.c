@@ -3,16 +3,12 @@
  * Copyright © 2014-2018 Intel Corporation
  */
 
+#include "gem/i915_gem_internal.h"
 #include "gem/i915_gem_object.h"
 
 #include "i915_drv.h"
 #include "intel_engine_pm.h"
 #include "intel_gt_buffer_pool.h"
-
-static struct intel_gt *to_gt(struct intel_gt_buffer_pool *pool)
-{
-	return container_of(pool, struct intel_gt, buffer_pool);
-}
 
 static struct list_head *
 bucket_for_size(struct intel_gt_buffer_pool *pool, size_t sz)
@@ -92,47 +88,29 @@ static void pool_free_work(struct work_struct *wrk)
 {
 	struct intel_gt_buffer_pool *pool =
 		container_of(wrk, typeof(*pool), work.work);
+	struct intel_gt *gt = container_of(pool, struct intel_gt, buffer_pool);
 
 	if (pool_free_older_than(pool, HZ))
-		schedule_delayed_work(&pool->work,
-				      round_jiffies_up_relative(HZ));
+		queue_delayed_work(gt->i915->unordered_wq, &pool->work,
+				   round_jiffies_up_relative(HZ));
 }
 
-static int pool_active(struct i915_active *ref)
-{
-	struct intel_gt_buffer_pool_node *node =
-		container_of(ref, typeof(*node), active);
-	struct dma_resv *resv = node->obj->base.resv;
-	int err;
-
-	if (dma_resv_trylock(resv)) {
-		dma_resv_add_excl_fence(resv, NULL);
-		dma_resv_unlock(resv);
-	}
-
-	err = i915_gem_object_pin_pages(node->obj);
-	if (err)
-		return err;
-
-	/* Hide this pinned object from the shrinker until retired */
-	i915_gem_object_make_unshrinkable(node->obj);
-
-	return 0;
-}
-
-__i915_active_call
 static void pool_retire(struct i915_active *ref)
 {
 	struct intel_gt_buffer_pool_node *node =
 		container_of(ref, typeof(*node), active);
 	struct intel_gt_buffer_pool *pool = node->pool;
+	struct intel_gt *gt = container_of(pool, struct intel_gt, buffer_pool);
 	struct list_head *list = bucket_for_size(pool, node->obj->base.size);
 	unsigned long flags;
 
-	i915_gem_object_unpin_pages(node->obj);
+	if (node->pinned) {
+		i915_gem_object_unpin_pages(node->obj);
 
-	/* Return this object to the shrinker pool */
-	i915_gem_object_make_purgeable(node->obj);
+		/* Return this object to the shrinker pool */
+		i915_gem_object_make_purgeable(node->obj);
+		node->pinned = false;
+	}
 
 	GEM_BUG_ON(node->age);
 	spin_lock_irqsave(&pool->lock, flags);
@@ -140,15 +118,28 @@ static void pool_retire(struct i915_active *ref)
 	WRITE_ONCE(node->age, jiffies ?: 1); /* 0 reserved for active nodes */
 	spin_unlock_irqrestore(&pool->lock, flags);
 
-	schedule_delayed_work(&pool->work,
-			      round_jiffies_up_relative(HZ));
+	queue_delayed_work(gt->i915->unordered_wq, &pool->work,
+			   round_jiffies_up_relative(HZ));
+}
+
+void intel_gt_buffer_pool_mark_used(struct intel_gt_buffer_pool_node *node)
+{
+	assert_object_held(node->obj);
+
+	if (node->pinned)
+		return;
+
+	__i915_gem_object_pin_pages(node->obj);
+	/* Hide this pinned object from the shrinker until retired */
+	i915_gem_object_make_unshrinkable(node->obj);
+	node->pinned = true;
 }
 
 static struct intel_gt_buffer_pool_node *
 node_create(struct intel_gt_buffer_pool *pool, size_t sz,
 	    enum i915_map_type type)
 {
-	struct intel_gt *gt = to_gt(pool);
+	struct intel_gt *gt = container_of(pool, struct intel_gt, buffer_pool);
 	struct intel_gt_buffer_pool_node *node;
 	struct drm_i915_gem_object *obj;
 
@@ -159,7 +150,8 @@ node_create(struct intel_gt_buffer_pool *pool, size_t sz,
 
 	node->age = 0;
 	node->pool = pool;
-	i915_active_init(&node->active, pool_active, pool_retire);
+	node->pinned = false;
+	i915_active_init(&node->active, NULL, pool_retire, 0);
 
 	obj = i915_gem_object_create_internal(gt->i915, sz);
 	if (IS_ERR(obj)) {
@@ -250,8 +242,6 @@ void intel_gt_fini_buffer_pool(struct intel_gt *gt)
 {
 	struct intel_gt_buffer_pool *pool = &gt->buffer_pool;
 	int n;
-
-	intel_gt_flush_buffer_pool(gt);
 
 	for (n = 0; n < ARRAY_SIZE(pool->cache_list); n++)
 		GEM_BUG_ON(!list_empty(&pool->cache_list[n]));

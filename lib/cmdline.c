@@ -260,7 +260,7 @@ char *next_arg(char *args, char **param, char **val)
 				args[i-1] = '\0';
 		}
 	}
-	if (quoted && args[i-1] == '"')
+	if (quoted && i > 0 && args[i-1] == '"')
 		args[i-1] = '\0';
 
 	if (args[i]) {
@@ -272,3 +272,4 @@ char *next_arg(char *args, char **param, char **val)
 	/* Chew up trailing spaces. */
 	return skip_spaces(args);
 }
+EXPORT_SYMBOL(next_arg);

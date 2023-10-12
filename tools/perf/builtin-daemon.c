@@ -6,7 +6,6 @@
 #include <linux/zalloc.h>
 #include <linux/string.h>
 #include <linux/limits.h>
-#include <linux/string.h>
 #include <string.h>
 #include <sys/file.h>
 #include <signal.h>
@@ -24,8 +23,6 @@
 #include <sys/signalfd.h>
 #include <sys/wait.h>
 #include <poll.h>
-#include <sys/stat.h>
-#include <time.h>
 #include "builtin.h"
 #include "perf.h"
 #include "debug.h"
@@ -93,7 +90,7 @@ struct daemon {
 	char			*base;
 	struct list_head	 sessions;
 	FILE			*out;
-	char			 perf[PATH_MAX];
+	char			*perf;
 	int			 signal_fd;
 	time_t			 start;
 };
@@ -103,12 +100,12 @@ static struct daemon __daemon = {
 };
 
 static const char * const daemon_usage[] = {
-	"perf daemon start [<options>]",
+	"perf daemon {start|signal|stop|ping} [<options>]",
 	"perf daemon [<options>]",
 	NULL
 };
 
-static bool done;
+static volatile sig_atomic_t done;
 
 static void sig_handler(int sig __maybe_unused)
 {
@@ -161,7 +158,7 @@ static int session_config(struct daemon *daemon, const char *var, const char *va
 	struct daemon_session *session;
 	char name[100];
 
-	if (get_session_name(var, name, sizeof(name)))
+	if (get_session_name(var, name, sizeof(name) - 1))
 		return -EINVAL;
 
 	var = strchr(var, '.');
@@ -196,7 +193,7 @@ static int session_config(struct daemon *daemon, const char *var, const char *va
 
 		if (!same) {
 			if (session->run) {
-				free(session->run);
+				zfree(&session->run);
 				pr_debug("reconfig: session %s is changed\n", name);
 			}
 
@@ -373,12 +370,12 @@ static int daemon_session__run(struct daemon_session *session,
 	dup2(fd, 2);
 	close(fd);
 
-	if (mkfifo(SESSION_CONTROL, O_RDWR) && errno != EEXIST) {
+	if (mkfifo(SESSION_CONTROL, 0600) && errno != EEXIST) {
 		perror("failed: create control fifo");
 		return -1;
 	}
 
-	if (mkfifo(SESSION_ACK, O_RDWR) && errno != EEXIST) {
+	if (mkfifo(SESSION_ACK, 0600) && errno != EEXIST) {
 		perror("failed: create ack fifo");
 		return -1;
 	}
@@ -402,35 +399,42 @@ static pid_t handle_signalfd(struct daemon *daemon)
 	int status;
 	pid_t pid;
 
+	/*
+	 * Take signal fd data as pure signal notification and check all
+	 * the sessions state. The reason is that multiple signals can get
+	 * coalesced in kernel and we can receive only single signal even
+	 * if multiple SIGCHLD were generated.
+	 */
 	err = read(daemon->signal_fd, &si, sizeof(struct signalfd_siginfo));
-	if (err != sizeof(struct signalfd_siginfo))
+	if (err != sizeof(struct signalfd_siginfo)) {
+		pr_err("failed to read signal fd\n");
 		return -1;
+	}
 
 	list_for_each_entry(session, &daemon->sessions, list) {
-
-		if (session->pid != (int) si.ssi_pid)
+		if (session->pid == -1)
 			continue;
 
-		pid = waitpid(session->pid, &status, 0);
-		if (pid == session->pid) {
-			if (WIFEXITED(status)) {
-				pr_info("session '%s' exited, status=%d\n",
-					session->name, WEXITSTATUS(status));
-			} else if (WIFSIGNALED(status)) {
-				pr_info("session '%s' killed (signal %d)\n",
-					session->name, WTERMSIG(status));
-			} else if (WIFSTOPPED(status)) {
-				pr_info("session '%s' stopped (signal %d)\n",
-					session->name, WSTOPSIG(status));
-			} else {
-				pr_info("session '%s' Unexpected status (0x%x)\n",
-					session->name, status);
-			}
+		pid = waitpid(session->pid, &status, WNOHANG);
+		if (pid <= 0)
+			continue;
+
+		if (WIFEXITED(status)) {
+			pr_info("session '%s' exited, status=%d\n",
+				session->name, WEXITSTATUS(status));
+		} else if (WIFSIGNALED(status)) {
+			pr_info("session '%s' killed (signal %d)\n",
+				session->name, WTERMSIG(status));
+		} else if (WIFSTOPPED(status)) {
+			pr_info("session '%s' stopped (signal %d)\n",
+				session->name, WSTOPSIG(status));
+		} else {
+			pr_info("session '%s' Unexpected status (0x%x)\n",
+				session->name, status);
 		}
 
 		session->state = KILL;
 		session->pid = -1;
-		return pid;
 	}
 
 	return 0;
@@ -443,7 +447,6 @@ static int daemon_session__wait(struct daemon_session *session, struct daemon *d
 		.fd	= daemon->signal_fd,
 		.events	= POLLIN,
 	};
-	pid_t wpid = 0, pid = session->pid;
 	time_t start;
 
 	start = time(NULL);
@@ -452,7 +455,7 @@ static int daemon_session__wait(struct daemon_session *session, struct daemon *d
 		int err = poll(&pollfd, 1, 1000);
 
 		if (err > 0) {
-			wpid = handle_signalfd(daemon);
+			handle_signalfd(daemon);
 		} else if (err < 0) {
 			perror("failed: poll\n");
 			return -1;
@@ -460,7 +463,7 @@ static int daemon_session__wait(struct daemon_session *session, struct daemon *d
 
 		if (start + secs < time(NULL))
 			return -1;
-	} while (wpid != pid);
+	} while (session->pid != -1);
 
 	return 0;
 }
@@ -902,7 +905,9 @@ static void daemon_session__kill(struct daemon_session *session,
 			daemon_session__signal(session, SIGKILL);
 			break;
 		default:
-			break;
+			pr_err("failed to wait for session %s\n",
+			       session->name);
+			return;
 		}
 		how++;
 
@@ -919,9 +924,9 @@ static void daemon__signal(struct daemon *daemon, int sig)
 
 static void daemon_session__delete(struct daemon_session *session)
 {
-	free(session->base);
-	free(session->name);
-	free(session->run);
+	zfree(&session->base);
+	zfree(&session->name);
+	zfree(&session->run);
 	free(session);
 }
 
@@ -955,7 +960,8 @@ static void daemon__kill(struct daemon *daemon)
 			daemon__signal(daemon, SIGKILL);
 			break;
 		default:
-			break;
+			pr_err("failed to wait for sessions\n");
+			return;
 		}
 		how++;
 
@@ -969,9 +975,9 @@ static void daemon__exit(struct daemon *daemon)
 	list_for_each_entry_safe(session, h, &daemon->sessions, list)
 		daemon_session__remove(session);
 
-	free(daemon->config_real);
-	free(daemon->config_base);
-	free(daemon->base);
+	zfree(&daemon->config_real);
+	zfree(&daemon->config_base);
+	zfree(&daemon->base);
 }
 
 static int daemon__reconfig(struct daemon *daemon)
@@ -1114,8 +1120,6 @@ static int setup_config(struct daemon *daemon)
 
 #ifndef F_TLOCK
 #define F_TLOCK 2
-
-#include <sys/file.h>
 
 static int lockf(int fd, int cmd, off_t len)
 {
@@ -1344,7 +1348,7 @@ out:
 		close(sock_fd);
 	if (conf_fd != -1)
 		close(conf_fd);
-	if (conf_fd != -1)
+	if (signal_fd != -1)
 		close(signal_fd);
 
 	pr_info("daemon exited\n");
@@ -1397,8 +1401,10 @@ out:
 
 static int send_cmd_list(struct daemon *daemon)
 {
-	union cmd cmd = { .cmd = CMD_LIST, };
+	union cmd cmd;
 
+	memset(&cmd, 0, sizeof(cmd));
+	cmd.list.cmd = CMD_LIST;
 	cmd.list.verbose = verbose;
 	cmd.list.csv_sep = daemon->csv_sep ? *daemon->csv_sep : 0;
 
@@ -1426,6 +1432,7 @@ static int __cmd_signal(struct daemon *daemon, struct option parent_options[],
 		return -1;
 	}
 
+	memset(&cmd, 0, sizeof(cmd));
 	cmd.signal.cmd = CMD_SIGNAL,
 	cmd.signal.sig = SIGUSR2;
 	strncpy(cmd.signal.name, name, sizeof(cmd.signal.name) - 1);
@@ -1440,7 +1447,7 @@ static int __cmd_stop(struct daemon *daemon, struct option parent_options[],
 		OPT_PARENT(parent_options),
 		OPT_END()
 	};
-	union cmd cmd = { .cmd = CMD_STOP, };
+	union cmd cmd;
 
 	argc = parse_options(argc, argv, start_options, daemon_usage, 0);
 	if (argc)
@@ -1451,6 +1458,8 @@ static int __cmd_stop(struct daemon *daemon, struct option parent_options[],
 		return -1;
 	}
 
+	memset(&cmd, 0, sizeof(cmd));
+	cmd.cmd = CMD_STOP;
 	return send_cmd(daemon, &cmd);
 }
 
@@ -1464,7 +1473,7 @@ static int __cmd_ping(struct daemon *daemon, struct option parent_options[],
 		OPT_PARENT(parent_options),
 		OPT_END()
 	};
-	union cmd cmd = { .cmd = CMD_PING, };
+	union cmd cmd;
 
 	argc = parse_options(argc, argv, ping_options, daemon_usage, 0);
 	if (argc)
@@ -1475,8 +1484,18 @@ static int __cmd_ping(struct daemon *daemon, struct option parent_options[],
 		return -1;
 	}
 
+	memset(&cmd, 0, sizeof(cmd));
+	cmd.cmd = CMD_PING;
 	scnprintf(cmd.ping.name, sizeof(cmd.ping.name), "%s", name);
 	return send_cmd(daemon, &cmd);
+}
+
+static char *alloc_perf_exe_path(void)
+{
+	char path[PATH_MAX];
+
+	perf_exe(path, sizeof(path));
+	return strdup(path);
 }
 
 int cmd_daemon(int argc, const char **argv)
@@ -1491,8 +1510,12 @@ int cmd_daemon(int argc, const char **argv)
 			"field separator", "print counts with custom separator", ","),
 		OPT_END()
 	};
+	int ret = -1;
 
-	perf_exe(__daemon.perf, sizeof(__daemon.perf));
+	__daemon.perf = alloc_perf_exe_path();
+	if (!__daemon.perf)
+		return -ENOMEM;
+
 	__daemon.out = stdout;
 
 	argc = parse_options(argc, argv, daemon_options, daemon_usage,
@@ -1500,22 +1523,22 @@ int cmd_daemon(int argc, const char **argv)
 
 	if (argc) {
 		if (!strcmp(argv[0], "start"))
-			return __cmd_start(&__daemon, daemon_options, argc, argv);
-		if (!strcmp(argv[0], "signal"))
-			return __cmd_signal(&__daemon, daemon_options, argc, argv);
+			ret = __cmd_start(&__daemon, daemon_options, argc, argv);
+		else if (!strcmp(argv[0], "signal"))
+			ret = __cmd_signal(&__daemon, daemon_options, argc, argv);
 		else if (!strcmp(argv[0], "stop"))
-			return __cmd_stop(&__daemon, daemon_options, argc, argv);
+			ret = __cmd_stop(&__daemon, daemon_options, argc, argv);
 		else if (!strcmp(argv[0], "ping"))
-			return __cmd_ping(&__daemon, daemon_options, argc, argv);
-
-		pr_err("failed: unknown command '%s'\n", argv[0]);
-		return -1;
+			ret = __cmd_ping(&__daemon, daemon_options, argc, argv);
+		else
+			pr_err("failed: unknown command '%s'\n", argv[0]);
+	} else {
+		ret = setup_config(&__daemon);
+		if (ret)
+			pr_err("failed: config not found\n");
+		else
+			ret = send_cmd_list(&__daemon);
 	}
-
-	if (setup_config(&__daemon)) {
-		pr_err("failed: config not found\n");
-		return -1;
-	}
-
-	return send_cmd_list(&__daemon);
+	zfree(&__daemon.perf);
+	return ret;
 }

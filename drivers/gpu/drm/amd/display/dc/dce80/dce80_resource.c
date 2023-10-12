@@ -23,8 +23,6 @@
  *
  */
 
-#include <linux/slab.h>
-
 #include "dce/dce_8_0_d.h"
 #include "dce/dce_8_0_sh_mask.h"
 
@@ -60,12 +58,12 @@
 #include "dce/dce_i2c.h"
 /* TODO remove this include */
 
-#include "dce80_resource.h"
-
 #ifndef mmMC_HUB_RDREQ_DMIF_LIMIT
 #include "gmc/gmc_7_1_d.h"
 #include "gmc/gmc_7_1_sh_mask.h"
 #endif
+
+#include "dce80/dce80_resource.h"
 
 #ifndef mmDP_DPHY_INTERNAL_CTRL
 #define mmDP_DPHY_INTERNAL_CTRL                         0x1CDE
@@ -420,6 +418,10 @@ static const struct dc_plane_cap plane_cap = {
 	}
 };
 
+static const struct dc_debug_options debug_defaults = {
+		.enable_legacy_fast_update = true,
+};
+
 static const struct dce_dmcu_registers dmcu_regs = {
 		DMCU_DCE80_REG_LIST()
 };
@@ -526,7 +528,7 @@ static struct output_pixel_processor *dce80_opp_create(
 	return &opp->base;
 }
 
-struct dce_aux *dce80_aux_engine_create(
+static struct dce_aux *dce80_aux_engine_create(
 	struct dc_context *ctx,
 	uint32_t inst)
 {
@@ -564,7 +566,7 @@ static const struct dce_i2c_mask i2c_masks = {
 		I2C_COMMON_MASK_SH_LIST_DCE_COMMON_BASE(_MASK)
 };
 
-struct dce_i2c_hw *dce80_i2c_hw_create(
+static struct dce_i2c_hw *dce80_i2c_hw_create(
 	struct dc_context *ctx,
 	uint32_t inst)
 {
@@ -580,7 +582,7 @@ struct dce_i2c_hw *dce80_i2c_hw_create(
 	return dce_i2c_hw;
 }
 
-struct dce_i2c_sw *dce80_i2c_sw_create(
+static struct dce_i2c_sw *dce80_i2c_sw_create(
 	struct dc_context *ctx)
 {
 	struct dce_i2c_sw *dce_i2c_sw =
@@ -714,7 +716,8 @@ static const struct encoder_feature_support link_enc_feature = {
 		.flags.bits.IS_TPS3_CAPABLE = true
 };
 
-struct link_encoder *dce80_link_encoder_create(
+static struct link_encoder *dce80_link_encoder_create(
+	struct dc_context *ctx,
 	const struct encoder_init_data *enc_init_data)
 {
 	struct dce110_link_encoder *enc110 =
@@ -753,7 +756,7 @@ static struct panel_cntl *dce80_panel_cntl_create(const struct panel_cntl_init_d
 	return &panel_cntl->base;
 }
 
-struct clock_source *dce80_clock_source_create(
+static struct clock_source *dce80_clock_source_create(
 	struct dc_context *ctx,
 	struct dc_bios *bios,
 	enum clock_source_id id,
@@ -777,7 +780,7 @@ struct clock_source *dce80_clock_source_create(
 	return NULL;
 }
 
-void dce80_clock_source_destroy(struct clock_source **clk_src)
+static void dce80_clock_source_destroy(struct clock_source **clk_src)
 {
 	kfree(TO_DCE110_CLK_SRC(*clk_src));
 	*clk_src = NULL;
@@ -867,7 +870,7 @@ static void dce80_resource_destruct(struct dce110_resource_pool *pool)
 	}
 }
 
-bool dce80_validate_bandwidth(
+static bool dce80_validate_bandwidth(
 	struct dc *dc,
 	struct dc_state *context,
 	bool fast_validate)
@@ -912,7 +915,7 @@ static bool dce80_validate_surface_sets(
 	return true;
 }
 
-enum dc_status dce80_validate_global(
+static enum dc_status dce80_validate_global(
 		struct dc *dc,
 		struct dc_state *context)
 {
@@ -970,6 +973,7 @@ static bool dce80_construct(
 	dc->caps.min_horizontal_blanking_period = 80;
 	dc->caps.dual_link_dvi = true;
 	dc->caps.extended_aux_timeout_support = false;
+	dc->debug = debug_defaults;
 
 	/*************************************************
 	 *  Create resources                             *
@@ -1138,6 +1142,7 @@ struct resource_pool *dce80_create_resource_pool(
 	if (dce80_construct(num_virtual_links, dc, pool))
 		return &pool->base;
 
+	kfree(pool);
 	BREAK_TO_DEBUGGER();
 	return NULL;
 }
@@ -1337,6 +1342,7 @@ struct resource_pool *dce81_create_resource_pool(
 	if (dce81_construct(num_virtual_links, dc, pool))
 		return &pool->base;
 
+	kfree(pool);
 	BREAK_TO_DEBUGGER();
 	return NULL;
 }
@@ -1368,6 +1374,7 @@ static bool dce83_construct(
 	dc->caps.max_cursor_size = 128;
 	dc->caps.min_horizontal_blanking_period = 80;
 	dc->caps.is_apu = true;
+	dc->debug = debug_defaults;
 
 	/*************************************************
 	 *  Create resources                             *

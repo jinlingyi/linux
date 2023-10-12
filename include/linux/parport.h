@@ -40,10 +40,6 @@ struct amiga_parport_state {
        unsigned char statusdir;/* ciab.ddrb & 7 */
 };
 
-struct ax88796_parport_state {
-	unsigned char cpr;
-};
-
 struct ip32_parport_state {
 	unsigned int dcr;
 	unsigned int ecr;
@@ -55,7 +51,6 @@ struct parport_state {
 		/* ARC has no state. */
 		struct ax_parport_state ax;
 		struct amiga_parport_state amiga;
-		struct ax88796_parport_state ax88796;
 		/* Atari has not state. */
 		struct ip32_parport_state ip32;
 		void *misc; 
@@ -184,6 +179,8 @@ struct ieee1284_info {
 	volatile enum ieee1284_phase phase;
 	struct semaphore irq;
 };
+
+#define PARPORT_NAME_MAX_LEN 15
 
 /* A parallel port */
 struct parport {
@@ -332,8 +329,18 @@ int __must_check __parport_register_driver(struct parport_driver *,
 	__parport_register_driver(driver, THIS_MODULE, KBUILD_MODNAME)
 
 /* Unregister a high-level driver. */
-extern void parport_unregister_driver (struct parport_driver *);
 void parport_unregister_driver(struct parport_driver *);
+
+/**
+ * module_parport_driver() - Helper macro for registering a modular parport driver
+ * @__parport_driver: struct parport_driver to be used
+ *
+ * Helper macro for parport drivers which do not do anything special in module
+ * init and exit. This eliminates a lot of boilerplate. Each module may only
+ * use this macro once, and calling it replaces module_init() and module_exit().
+ */
+#define module_parport_driver(__parport_driver) \
+	module_driver(__parport_driver, parport_register_driver, parport_unregister_driver)
 
 /* If parport_register_driver doesn't fit your needs, perhaps
  * parport_find_xxx does. */
@@ -509,7 +516,7 @@ extern int parport_device_proc_register(struct pardevice *device);
 extern int parport_device_proc_unregister(struct pardevice *device);
 
 /* If PC hardware is the only type supported, we can optimise a bit.  */
-#if !defined(CONFIG_PARPORT_NOT_PC)
+#if !defined(CONFIG_PARPORT_NOT_PC) && defined(CONFIG_PARPORT_PC)
 
 #include <linux/parport_pc.h>
 #define parport_write_data(p,x)            parport_pc_write_data(p,x)

@@ -1,7 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/* -*- mode: c; c-basic-offset: 8; -*-
- * vim: noexpandtab sw=8 ts=8 sts=0:
- *
+/*
  * dlmcommon.h
  *
  * Copyright (C) 2004 Oracle.  All rights reserved.
@@ -1096,7 +1094,7 @@ static inline enum dlm_status dlm_err_to_dlm_status(int err)
 static inline void dlm_node_iter_init(unsigned long *map,
 				      struct dlm_node_iter *iter)
 {
-	memcpy(iter->node_map, map, sizeof(iter->node_map));
+	bitmap_copy(iter->node_map, map, O2NM_MAX_NODES);
 	iter->curnode = -1;
 }
 

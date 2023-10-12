@@ -359,6 +359,7 @@ static const struct regulator_ops pf8x00_buck7_ops = {
 	.disable = regulator_disable_regmap,
 	.is_enabled = regulator_is_enabled_regmap,
 	.list_voltage = regulator_list_voltage_table,
+	.map_voltage = regulator_map_voltage_ascend,
 	.set_voltage_sel = regulator_set_voltage_sel_regmap,
 	.get_voltage_sel = regulator_get_voltage_sel_regmap,
 	.get_current_limit = regulator_get_current_limit_regmap,
@@ -606,9 +607,10 @@ static struct i2c_driver pf8x00_regulator_driver = {
 	.id_table = pf8x00_i2c_id,
 	.driver = {
 		.name = "pf8x00",
+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 		.of_match_table = pf8x00_dt_ids,
 	},
-	.probe_new = pf8x00_i2c_probe,
+	.probe = pf8x00_i2c_probe,
 };
 module_i2c_driver(pf8x00_regulator_driver);
 

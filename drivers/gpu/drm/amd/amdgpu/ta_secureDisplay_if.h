@@ -50,14 +50,15 @@ enum ta_securedisplay_status {
 	TA_SECUREDISPLAY_STATUS__I2C_WRITE_ERROR         = 0x04,         /* Fail to Write to I2C */
 	TA_SECUREDISPLAY_STATUS__READ_DIO_SCRATCH_ERROR  = 0x05, /*Fail Read DIO Scratch Register*/
 	TA_SECUREDISPLAY_STATUS__READ_CRC_ERROR          = 0x06,         /* Fail to Read CRC*/
+	TA_SECUREDISPLAY_STATUS__I2C_INIT_ERROR          = 0x07,     /* Failed to initialize I2C */
 
 	TA_SECUREDISPLAY_STATUS__MAX                     = 0x7FFFFFFF,/* Maximum Value for status*/
 };
 
-/** @enum ta_securedisplay_max_phy
+/** @enum ta_securedisplay_phy_ID
  *    Physical ID number to use for reading corresponding DIO Scratch register for ROI
  */
-enum  ta_securedisplay_max_phy {
+enum  ta_securedisplay_phy_ID {
 	TA_SECUREDISPLAY_PHY0                           = 0,
 	TA_SECUREDISPLAY_PHY1                           = 1,
 	TA_SECUREDISPLAY_PHY2                           = 2,
@@ -138,16 +139,16 @@ union ta_securedisplay_cmd_output {
 	uint32_t                                           reserved[4];
 };
 
-/** @struct securedisplay_cmd
- *    Secure Display Command which is shared buffer memory
- */
-struct securedisplay_cmd {
-	uint32_t                             cmd_id;                    /* +0  Bytes Command ID */
-	enum ta_securedisplay_status         status;     /* +4  Bytes Status of Secure Display TA */
-	uint32_t                             reserved[2];               /* +8  Bytes Reserved */
-	union ta_securedisplay_cmd_input     securedisplay_in_message;  /* +16 Bytes Input Buffer */
-	union ta_securedisplay_cmd_output    securedisplay_out_message;/* +32 Bytes Output Buffer */
-	/**@note Total 48 Bytes */
+/** @struct ta_securedisplay_cmd
+*    Secure display command which is shared buffer memory
+*/
+struct ta_securedisplay_cmd {
+    uint32_t                                           cmd_id;                         /**< +0  Bytes Command ID */
+    enum ta_securedisplay_status                       status;                         /**< +4  Bytes Status code returned by the secure display TA */
+    uint32_t                                           reserved[2];                    /**< +8  Bytes Reserved */
+    union ta_securedisplay_cmd_input                   securedisplay_in_message;       /**< +16 Bytes Command input buffer */
+    union ta_securedisplay_cmd_output                  securedisplay_out_message;      /**< +32 Bytes Command output buffer */
+    /**@note Total 48 Bytes */
 };
 
 #endif   //_TA_SECUREDISPLAY_IF_H

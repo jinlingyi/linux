@@ -11,7 +11,7 @@
 #include <linux/gpio/consumer.h>
 #include <linux/jiffies.h>
 #include <linux/module.h>
-#include <linux/of_device.h>
+#include <linux/of.h>
 #include <linux/regulator/consumer.h>
 
 #include <drm/drm_connector.h>
@@ -37,6 +37,7 @@ struct dsic_panel_data {
 	u32 height_mm;
 	u32 max_hs_rate;
 	u32 max_lp_rate;
+	bool te_support;
 };
 
 struct panel_drv_data {
@@ -84,17 +85,10 @@ static void dsicm_bl_power(struct panel_drv_data *ddata, bool enable)
 	else
 		return;
 
-	if (enable) {
-		backlight->props.fb_blank = FB_BLANK_UNBLANK;
-		backlight->props.state = ~(BL_CORE_FBBLANK | BL_CORE_SUSPENDED);
-		backlight->props.power = FB_BLANK_UNBLANK;
-	} else {
-		backlight->props.fb_blank = FB_BLANK_NORMAL;
-		backlight->props.power = FB_BLANK_POWERDOWN;
-		backlight->props.state |= BL_CORE_FBBLANK | BL_CORE_SUSPENDED;
-	}
-
-	backlight_update_status(backlight);
+	if (enable)
+		backlight_enable(backlight);
+	else
+		backlight_disable(backlight);
 }
 
 static void hw_guard_start(struct panel_drv_data *ddata, int guard_msec)
@@ -195,13 +189,7 @@ static int dsicm_bl_update_status(struct backlight_device *dev)
 {
 	struct panel_drv_data *ddata = dev_get_drvdata(&dev->dev);
 	int r = 0;
-	int level;
-
-	if (dev->props.fb_blank == FB_BLANK_UNBLANK &&
-			dev->props.power == FB_BLANK_UNBLANK)
-		level = dev->props.brightness;
-	else
-		level = 0;
+	int level = backlight_get_brightness(dev);
 
 	dev_dbg(&ddata->dsi->dev, "update brightness to %d\n", level);
 
@@ -218,11 +206,7 @@ static int dsicm_bl_update_status(struct backlight_device *dev)
 
 static int dsicm_bl_get_intensity(struct backlight_device *dev)
 {
-	if (dev->props.fb_blank == FB_BLANK_UNBLANK &&
-			dev->props.power == FB_BLANK_UNBLANK)
-		return dev->props.brightness;
-
-	return 0;
+	return backlight_get_brightness(dev);
 }
 
 static const struct backlight_ops dsicm_bl_ops = {
@@ -247,7 +231,7 @@ static ssize_t num_dsi_errors_show(struct device *dev,
 	if (r)
 		return r;
 
-	return snprintf(buf, PAGE_SIZE, "%d\n", errors);
+	return sysfs_emit(buf, "%d\n", errors);
 }
 
 static ssize_t hw_revision_show(struct device *dev,
@@ -267,7 +251,7 @@ static ssize_t hw_revision_show(struct device *dev,
 	if (r)
 		return r;
 
-	return snprintf(buf, PAGE_SIZE, "%02x.%02x.%02x\n", id1, id2, id3);
+	return sysfs_emit(buf, "%02x.%02x.%02x\n", id1, id2, id3);
 }
 
 static DEVICE_ATTR_RO(num_dsi_errors);
@@ -334,9 +318,11 @@ static int dsicm_power_on(struct panel_drv_data *ddata)
 	if (r)
 		goto err;
 
-	r = mipi_dsi_dcs_set_tear_on(ddata->dsi, MIPI_DSI_DCS_TEAR_MODE_VBLANK);
-	if (r)
-		goto err;
+	if (ddata->panel_data->te_support) {
+		r = mipi_dsi_dcs_set_tear_on(ddata->dsi, MIPI_DSI_DCS_TEAR_MODE_VBLANK);
+		if (r)
+			goto err;
+	}
 
 	/* possible panel bug */
 	msleep(100);
@@ -571,7 +557,7 @@ static int dsicm_probe(struct mipi_dsi_device *dsi)
 	dsi->lanes = 2;
 	dsi->format = MIPI_DSI_FMT_RGB888;
 	dsi->mode_flags = MIPI_DSI_CLOCK_NON_CONTINUOUS |
-			  MIPI_DSI_MODE_EOT_PACKET;
+			  MIPI_DSI_MODE_NO_EOT_PACKET;
 	dsi->hs_rate = ddata->panel_data->max_hs_rate;
 	dsi->lp_rate = ddata->panel_data->max_lp_rate;
 
@@ -593,7 +579,7 @@ err_bl:
 	return r;
 }
 
-static int dsicm_remove(struct mipi_dsi_device *dsi)
+static void dsicm_remove(struct mipi_dsi_device *dsi)
 {
 	struct panel_drv_data *ddata = mipi_dsi_get_drvdata(dsi);
 
@@ -607,8 +593,6 @@ static int dsicm_remove(struct mipi_dsi_device *dsi)
 
 	if (ddata->extbldev)
 		put_device(&ddata->extbldev->dev);
-
-	return 0;
 }
 
 static const struct dsic_panel_data taal_data = {
@@ -619,6 +603,7 @@ static const struct dsic_panel_data taal_data = {
 	.height_mm = 0,
 	.max_hs_rate = 300000000,
 	.max_lp_rate = 10000000,
+	.te_support = true,
 };
 
 static const struct dsic_panel_data himalaya_data = {
@@ -629,6 +614,7 @@ static const struct dsic_panel_data himalaya_data = {
 	.height_mm = 88,
 	.max_hs_rate = 300000000,
 	.max_lp_rate = 10000000,
+	.te_support = false,
 };
 
 static const struct dsic_panel_data droid4_data = {
@@ -639,6 +625,7 @@ static const struct dsic_panel_data droid4_data = {
 	.height_mm = 89,
 	.max_hs_rate = 300000000,
 	.max_lp_rate = 10000000,
+	.te_support = false,
 };
 
 static const struct of_device_id dsicm_of_match[] = {

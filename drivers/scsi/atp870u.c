@@ -40,7 +40,7 @@
 
 #include "atp870u.h"
 
-static struct scsi_host_template atp870u_template;
+static const struct scsi_host_template atp870u_template;
 static void send_s870(struct atp_unit *dev,unsigned char c);
 static void atp_is(struct atp_unit *dev, unsigned char c, bool wide_chip,
 		   unsigned char lvdmode);
@@ -512,7 +512,7 @@ static irqreturn_t atp870u_intr_handle(int irq, void *dev_id)
 			scsi_dma_unmap(workreq);
 
 			spin_lock_irqsave(dev->host->host_lock, flags);
-			(*workreq->scsi_done) (workreq);
+			scsi_done(workreq);
 #ifdef ED_DBGP
 			   printk("workreq->scsi_done\n");
 #endif
@@ -612,15 +612,14 @@ static irqreturn_t atp870u_intr_handle(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 /**
- *	atp870u_queuecommand	-	Queue SCSI command
+ *	atp870u_queuecommand_lck -	Queue SCSI command
  *	@req_p: request block
- *	@done: completion function
  *
  *	Queue a command to the ATP queue. Called with the host lock held.
  */
-static int atp870u_queuecommand_lck(struct scsi_cmnd *req_p,
-			 void (*done) (struct scsi_cmnd *))
+static int atp870u_queuecommand_lck(struct scsi_cmnd *req_p)
 {
+	void (*done)(struct scsi_cmnd *) = scsi_done;
 	unsigned char c;
 	unsigned int m;
 	struct atp_unit *dev;
@@ -650,17 +649,6 @@ static int atp870u_queuecommand_lck(struct scsi_cmnd *req_p,
 
 	if ((m & dev->active_id[c]) == 0) {
 		req_p->result = DID_BAD_TARGET << 16;
-		done(req_p);
-		return 0;
-	}
-
-	if (done) {
-		req_p->scsi_done = done;
-	} else {
-#ifdef ED_DBGP
-		printk( "atp870u_queuecommand: done can't be NULL\n");
-#endif
-		req_p->result = 0;
 		done(req_p);
 		return 0;
 	}
@@ -711,16 +699,15 @@ static int atp870u_queuecommand_lck(struct scsi_cmnd *req_p,
 
 static DEF_SCSI_QCMD(atp870u_queuecommand)
 
-/**
+/*
  *	send_s870	-	send a command to the controller
- *	@host: host
  *
  *	On entry there is work queued to be done. We move some of that work to the
  *	controller itself.
  *
  *	Caller holds the host lock.
  */
-static void send_s870(struct atp_unit *dev,unsigned char c)
+static void send_s870(struct atp_unit *dev, unsigned char c)
 {
 	struct scsi_cmnd *workreq = NULL;
 	unsigned int i;//,k;
@@ -1739,7 +1726,7 @@ static void atp870u_remove (struct pci_dev *pdev)
 }
 MODULE_LICENSE("GPL");
 
-static struct scsi_host_template atp870u_template = {
+static const struct scsi_host_template atp870u_template = {
      .module			= THIS_MODULE,
      .name			= "atp870u"		/* name */,
      .proc_name			= "atp870u",

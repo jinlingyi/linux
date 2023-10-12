@@ -30,7 +30,6 @@
  * SOFTWARE.
  */
 
-#include <linux/module.h>
 #include <linux/configfs.h>
 #include <rdma/ib_verbs.h>
 #include <rdma/rdma_cm.h>
@@ -43,7 +42,7 @@ struct cma_device;
 struct cma_dev_group;
 
 struct cma_dev_port_group {
-	unsigned int		port_num;
+	u32			port_num;
 	struct cma_dev_group	*cma_dev_group;
 	struct config_group	group;
 };
@@ -200,10 +199,10 @@ static const struct config_item_type cma_port_group_type = {
 static int make_cma_ports(struct cma_dev_group *cma_dev_group,
 			  struct cma_device *cma_dev)
 {
-	struct ib_device *ibdev;
-	unsigned int i;
-	unsigned int ports_num;
 	struct cma_dev_port_group *ports;
+	struct ib_device *ibdev;
+	u32 ports_num;
+	u32 i;
 
 	ibdev = cma_get_ib_dev(cma_dev);
 
@@ -218,7 +217,7 @@ static int make_cma_ports(struct cma_dev_group *cma_dev_group,
 		return -ENOMEM;
 
 	for (i = 0; i < ports_num; i++) {
-		char port_str[10];
+		char port_str[11];
 
 		ports[i].port_num = i + 1;
 		snprintf(port_str, sizeof(port_str), "%u", i + 1);
@@ -293,7 +292,7 @@ static struct config_group *make_cma_dev(struct config_group *group,
 		goto fail;
 	}
 
-	strlcpy(cma_dev_group->name, name, sizeof(cma_dev_group->name));
+	strscpy(cma_dev_group->name, name, sizeof(cma_dev_group->name));
 
 	config_group_init_type_name(&cma_dev_group->ports_group, "ports",
 				    &cma_ports_group_type);

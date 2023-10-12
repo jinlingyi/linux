@@ -6,9 +6,19 @@
 #include <linux/ctype.h>
 #include <linux/types.h>
 #include <linux/export.h>
+#include <linux/kstrtox.h>
 #include <linux/parser.h>
 #include <linux/slab.h>
 #include <linux/string.h>
+
+/*
+ * max size needed by different bases to express U64
+ * HEX: "0xFFFFFFFFFFFFFFFF" --> 18
+ * DEC: "18446744073709551615" --> 20
+ * OCT: "01777777777777777777777" --> 23
+ * pick the max one to define NUMBER_BUF_LEN
+ */
+#define NUMBER_BUF_LEN 24
 
 /**
  * match_one - Determines if a string matches a simple pattern
@@ -98,7 +108,7 @@ static int match_one(char *s, const char *p, substring_t args[])
  * locations.
  *
  * Description: Detects which if any of a set of token strings has been passed
- * to it. Tokens can include up to MAX_OPT_ARGS instances of basic c-style
+ * to it. Tokens can include up to %MAX_OPT_ARGS instances of basic c-style
  * format identifiers which will be taken into account when matching the
  * tokens, and whose locations will be returned in the @args array.
  */
@@ -120,20 +130,20 @@ EXPORT_SYMBOL(match_token);
  * @base: base to use when converting string
  *
  * Description: Given a &substring_t and a base, attempts to parse the substring
- * as a number in that base. On success, sets @result to the integer represented
- * by the string and returns 0. Returns -ENOMEM, -EINVAL, or -ERANGE on failure.
+ * as a number in that base.
+ *
+ * Return: On success, sets @result to the integer represented by the
+ * string and returns 0. Returns -EINVAL or -ERANGE on failure.
  */
 static int match_number(substring_t *s, int *result, int base)
 {
 	char *endp;
-	char *buf;
+	char buf[NUMBER_BUF_LEN];
 	int ret;
 	long val;
 
-	buf = match_strdup(s);
-	if (!buf)
-		return -ENOMEM;
-
+	if (match_strlcpy(buf, s, NUMBER_BUF_LEN) >= NUMBER_BUF_LEN)
+		return -ERANGE;
 	ret = 0;
 	val = simple_strtol(buf, &endp, base);
 	if (endp == buf)
@@ -142,7 +152,6 @@ static int match_number(substring_t *s, int *result, int base)
 		ret = -ERANGE;
 	else
 		*result = (int) val;
-	kfree(buf);
 	return ret;
 }
 
@@ -153,23 +162,22 @@ static int match_number(substring_t *s, int *result, int base)
  * @base: base to use when converting string
  *
  * Description: Given a &substring_t and a base, attempts to parse the substring
- * as a number in that base. On success, sets @result to the integer represented
- * by the string and returns 0. Returns -ENOMEM, -EINVAL, or -ERANGE on failure.
+ * as a number in that base.
+ *
+ * Return: On success, sets @result to the integer represented by the
+ * string and returns 0. Returns -EINVAL or -ERANGE on failure.
  */
 static int match_u64int(substring_t *s, u64 *result, int base)
 {
-	char *buf;
+	char buf[NUMBER_BUF_LEN];
 	int ret;
 	u64 val;
 
-	buf = match_strdup(s);
-	if (!buf)
-		return -ENOMEM;
-
+	if (match_strlcpy(buf, s, NUMBER_BUF_LEN) >= NUMBER_BUF_LEN)
+		return -ERANGE;
 	ret = kstrtoull(buf, base, &val);
 	if (!ret)
 		*result = val;
-	kfree(buf);
 	return ret;
 }
 
@@ -178,9 +186,10 @@ static int match_u64int(substring_t *s, u64 *result, int base)
  * @s: substring_t to be scanned
  * @result: resulting integer on success
  *
- * Description: Attempts to parse the &substring_t @s as a decimal integer. On
- * success, sets @result to the integer represented by the string and returns 0.
- * Returns -ENOMEM, -EINVAL, or -ERANGE on failure.
+ * Description: Attempts to parse the &substring_t @s as a decimal integer.
+ *
+ * Return: On success, sets @result to the integer represented by the string
+ * and returns 0. Returns -EINVAL or -ERANGE on failure.
  */
 int match_int(substring_t *s, int *result)
 {
@@ -188,25 +197,24 @@ int match_int(substring_t *s, int *result)
 }
 EXPORT_SYMBOL(match_int);
 
-/*
+/**
  * match_uint - scan a decimal representation of an integer from a substring_t
  * @s: substring_t to be scanned
  * @result: resulting integer on success
  *
- * Description: Attempts to parse the &substring_t @s as a decimal integer. On
- * success, sets @result to the integer represented by the string and returns 0.
- * Returns -ENOMEM, -EINVAL, or -ERANGE on failure.
+ * Description: Attempts to parse the &substring_t @s as a decimal integer.
+ *
+ * Return: On success, sets @result to the integer represented by the string
+ * and returns 0. Returns -EINVAL or -ERANGE on failure.
  */
 int match_uint(substring_t *s, unsigned int *result)
 {
-	int err = -ENOMEM;
-	char *buf = match_strdup(s);
+	char buf[NUMBER_BUF_LEN];
 
-	if (buf) {
-		err = kstrtouint(buf, 10, result);
-		kfree(buf);
-	}
-	return err;
+	if (match_strlcpy(buf, s, NUMBER_BUF_LEN) >= NUMBER_BUF_LEN)
+		return -ERANGE;
+
+	return kstrtouint(buf, 10, result);
 }
 EXPORT_SYMBOL(match_uint);
 
@@ -217,9 +225,10 @@ EXPORT_SYMBOL(match_uint);
  * @result: resulting unsigned long long on success
  *
  * Description: Attempts to parse the &substring_t @s as a long decimal
- * integer. On success, sets @result to the integer represented by the
- * string and returns 0.
- * Returns -ENOMEM, -EINVAL, or -ERANGE on failure.
+ * integer.
+ *
+ * Return: On success, sets @result to the integer represented by the string
+ * and returns 0. Returns -EINVAL or -ERANGE on failure.
  */
 int match_u64(substring_t *s, u64 *result)
 {
@@ -232,9 +241,10 @@ EXPORT_SYMBOL(match_u64);
  * @s: substring_t to be scanned
  * @result: resulting integer on success
  *
- * Description: Attempts to parse the &substring_t @s as an octal integer. On
- * success, sets @result to the integer represented by the string and returns
- * 0. Returns -ENOMEM, -EINVAL, or -ERANGE on failure.
+ * Description: Attempts to parse the &substring_t @s as an octal integer.
+ *
+ * Return: On success, sets @result to the integer represented by the string
+ * and returns 0. Returns -EINVAL or -ERANGE on failure.
  */
 int match_octal(substring_t *s, int *result)
 {
@@ -248,8 +258,9 @@ EXPORT_SYMBOL(match_octal);
  * @result: resulting integer on success
  *
  * Description: Attempts to parse the &substring_t @s as a hexadecimal integer.
- * On success, sets @result to the integer represented by the string and
- * returns 0. Returns -ENOMEM, -EINVAL, or -ERANGE on failure.
+ *
+ * Return: On success, sets @result to the integer represented by the string
+ * and returns 0. Returns -EINVAL or -ERANGE on failure.
  */
 int match_hex(substring_t *s, int *result)
 {
@@ -263,10 +274,11 @@ EXPORT_SYMBOL(match_hex);
  * @str: the string to be parsed
  *
  * Description: Parse the string @str to check if matches wildcard
- * pattern @pattern. The pattern may contain two type wildcardes:
+ * pattern @pattern. The pattern may contain two types of wildcards:
  *   '*' - matches zero or more characters
  *   '?' - matches one character
- * If it's matched, return true, else return false.
+ *
+ * Return: If the @str matches the @pattern, return true, else return false.
  */
 bool match_wildcard(const char *pattern, const char *str)
 {
@@ -316,7 +328,9 @@ EXPORT_SYMBOL(match_wildcard);
  *
  * Description: Copy the characters in &substring_t @src to the
  * c-style string @dest.  Copy no more than @size - 1 characters, plus
- * the terminating NUL.  Return length of @src.
+ * the terminating NUL.
+ *
+ * Return: length of @src.
  */
 size_t match_strlcpy(char *dest, const substring_t *src, size_t size)
 {
@@ -338,6 +352,9 @@ EXPORT_SYMBOL(match_strlcpy);
  * Description: Allocates and returns a string filled with the contents of
  * the &substring_t @s. The caller is responsible for freeing the returned
  * string with kfree().
+ *
+ * Return: the address of the newly allocated NUL-terminated string or
+ * %NULL on error.
  */
 char *match_strdup(const substring_t *s)
 {

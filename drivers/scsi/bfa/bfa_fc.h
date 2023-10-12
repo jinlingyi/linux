@@ -800,7 +800,7 @@ struct fc_rscn_pl_s {
 	u8	command;
 	u8	pagelen;
 	__be16	payldlen;
-	struct fc_rscn_event_s event[1];
+	struct fc_rscn_event_s event[];
 };
 
 /*
@@ -1193,7 +1193,7 @@ enum {
 };
 
 /*
- * defintions for CT reason code
+ * definitions for CT reason code
  */
 enum {
 	CT_RSN_INV_CMD		= 0x01,
@@ -1240,7 +1240,7 @@ enum {
 };
 
 /*
- * defintions for the explanation code for all servers
+ * definitions for the explanation code for all servers
  */
 enum {
 	CT_EXP_AUTH_EXCEPTION		= 0xF1,
@@ -1548,7 +1548,7 @@ enum fdmi_port_attribute_type {
 struct fdmi_attr_s {
 	__be16        type;
 	__be16        len;
-	u8         value[1];
+	u8         value[];
 };
 
 /*

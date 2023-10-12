@@ -14,14 +14,13 @@
 		i2c5 = "/bus@0/i2c@31c0000";
 		i2c6 = "/bus@0/i2c@c250000";
 		i2c7 = "/bus@0/i2c@31e0000";
-		mmc0 = "/bus@0/mmc@3460000";
 		rtc0 = "/bpmp/i2c/pmic@3c";
 		rtc1 = "/bus@0/rtc@c2a0000";
 		serial0 = &tcu;
 	};
 
 	chosen {
-		bootargs = "console=ttyS0,115200n8";
+		bootargs = "console=ttyTCU0,115200n8";
 		stdout-path = "serial0:115200n8";
 	};
 
@@ -37,7 +36,7 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-				phy: phy@0 {
+				phy: ethernet-phy@0 {
 					compatible = "ethernet-phy-ieee802.3-c22";
 					reg = <0x0>;
 					interrupt-parent = <&gpio>;
@@ -122,6 +121,24 @@
 				pinctrl-names = "default";
 				pinctrl-0 = <&max20024_default>;
 
+				fps {
+					fps0 {
+						maxim,fps-event-source = <MAX77620_FPS_EVENT_SRC_EN0>;
+						maxim,shutdown-fps-time-period-us = <640>;
+					};
+
+					fps1 {
+						maxim,fps-event-source = <MAX77620_FPS_EVENT_SRC_EN1>;
+						maxim,shutdown-fps-time-period-us = <640>;
+						maxim,device-state-on-disabled-event = <MAX77620_FPS_INACTIVE_STATE_SLEEP>;
+					};
+
+					fps2 {
+						maxim,fps-event-source = <MAX77620_FPS_EVENT_SRC_EN0>;
+						maxim,shutdown-fps-time-period-us = <640>;
+					};
+				};
+
 				max20024_default: pinmux {
 					gpio0 {
 						pins = "gpio0";
@@ -162,24 +179,6 @@
 						pins = "gpio7";
 						function = "gpio";
 						drive-push-pull = <0>;
-					};
-				};
-
-				fps {
-					fps0 {
-						maxim,fps-event-source = <MAX77620_FPS_EVENT_SRC_EN0>;
-						maxim,shutdown-fps-time-period-us = <640>;
-					};
-
-					fps1 {
-						maxim,fps-event-source = <MAX77620_FPS_EVENT_SRC_EN1>;
-						maxim,shutdown-fps-time-period-us = <640>;
-						maxim,device-state-on-disabled-event = <MAX77620_FPS_INACTIVE_STATE_SLEEP>;
-					};
-
-					fps2 {
-						maxim,fps-event-source = <MAX77620_FPS_EVENT_SRC_EN0>;
-						maxim,shutdown-fps-time-period-us = <640>;
 					};
 				};
 

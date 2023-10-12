@@ -47,6 +47,9 @@ static int mt7615_efuse_init(struct mt7615_dev *dev, u32 base)
 	void *buf;
 	u32 val;
 
+	if (is_mt7663(&dev->mt76))
+		len = MT7663_EEPROM_SIZE;
+
 	val = mt76_rr(dev, base + MT_EFUSE_BASE_CTRL);
 	if (val & MT_EFUSE_BASE_CTRL_EMPTY)
 		return 0;
@@ -72,6 +75,8 @@ static int mt7615_eeprom_load(struct mt7615_dev *dev, u32 addr)
 {
 	int ret;
 
+	BUILD_BUG_ON(MT7615_EEPROM_FULL_SIZE < MT7663_EEPROM_SIZE);
+
 	ret = mt76_eeprom_init(&dev->mt76, MT7615_EEPROM_FULL_SIZE);
 	if (ret < 0)
 		return ret;
@@ -86,6 +91,7 @@ static int mt7615_check_eeprom(struct mt76_dev *dev)
 	switch (val) {
 	case 0x7615:
 	case 0x7622:
+	case 0x7663:
 		return 0;
 	default:
 		return -EINVAL;
@@ -122,12 +128,12 @@ mt7615_eeprom_parse_hw_band_cap(struct mt7615_dev *dev)
 	case MT_EE_5GHZ:
 		dev->mphy.cap.has_5ghz = true;
 		break;
-	case MT_EE_2GHZ:
-		dev->mphy.cap.has_2ghz = true;
-		break;
 	case MT_EE_DBDC:
 		dev->dbdc_support = true;
 		fallthrough;
+	case MT_EE_2GHZ:
+		dev->mphy.cap.has_2ghz = true;
+		break;
 	default:
 		dev->mphy.cap.has_2ghz = true;
 		dev->mphy.cap.has_5ghz = true;
@@ -335,7 +341,7 @@ int mt7615_eeprom_init(struct mt7615_dev *dev, u32 addr)
 	ret = mt7615_check_eeprom(&dev->mt76);
 	if (ret && dev->mt76.otp.data) {
 		memcpy(dev->mt76.eeprom.data, dev->mt76.otp.data,
-		       MT7615_EEPROM_SIZE);
+		       dev->mt76.otp.size);
 	} else {
 		dev->flash_eeprom = true;
 		mt7615_cal_free_data(dev);

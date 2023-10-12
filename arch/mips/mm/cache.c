@@ -15,7 +15,9 @@
 #include <linux/syscalls.h>
 #include <linux/mm.h>
 #include <linux/highmem.h>
+#include <linux/pagemap.h>
 
+#include <asm/bcache.h>
 #include <asm/cacheflush.h>
 #include <asm/processor.h>
 #include <asm/cpu.h>
@@ -47,13 +49,29 @@ void (*__flush_kernel_vmap_range)(unsigned long vaddr, int size);
 EXPORT_SYMBOL_GPL(__flush_kernel_vmap_range);
 
 /* MIPS specific cache operations */
-void (*local_flush_data_cache_page)(void * addr);
 void (*flush_data_cache_page)(unsigned long addr);
 void (*flush_icache_all)(void);
 
-EXPORT_SYMBOL_GPL(local_flush_data_cache_page);
 EXPORT_SYMBOL(flush_data_cache_page);
 EXPORT_SYMBOL(flush_icache_all);
+
+/*
+ * Dummy cache handling routine
+ */
+
+void cache_noop(void) {}
+
+#ifdef CONFIG_BOARD_SCACHE
+
+static struct bcache_ops no_sc_ops = {
+	.bc_enable = (void *)cache_noop,
+	.bc_disable = (void *)cache_noop,
+	.bc_wback_inv = (void *)cache_noop,
+	.bc_inv = (void *)cache_noop
+};
+
+struct bcache_ops *bcops = &no_sc_ops;
+#endif
 
 #ifdef CONFIG_DMA_NONCOHERENT
 
@@ -81,13 +99,15 @@ SYSCALL_DEFINE3(cacheflush, unsigned long, addr, unsigned long, bytes,
 	return 0;
 }
 
-void __flush_dcache_page(struct page *page)
+void __flush_dcache_pages(struct page *page, unsigned int nr)
 {
-	struct address_space *mapping = page_mapping_file(page);
+	struct folio *folio = page_folio(page);
+	struct address_space *mapping = folio_flush_mapping(folio);
 	unsigned long addr;
+	unsigned int i;
 
 	if (mapping && !mapping_mapped(mapping)) {
-		SetPageDcacheDirty(page);
+		folio_set_dcache_dirty(folio);
 		return;
 	}
 
@@ -96,25 +116,21 @@ void __flush_dcache_page(struct page *page)
 	 * case is for exec env/arg pages and those are %99 certainly going to
 	 * get faulted into the tlb (and thus flushed) anyways.
 	 */
-	if (PageHighMem(page))
-		addr = (unsigned long)kmap_atomic(page);
-	else
-		addr = (unsigned long)page_address(page);
-
-	flush_data_cache_page(addr);
-
-	if (PageHighMem(page))
-		kunmap_atomic((void *)addr);
+	for (i = 0; i < nr; i++) {
+		addr = (unsigned long)kmap_local_page(page + i);
+		flush_data_cache_page(addr);
+		kunmap_local((void *)addr);
+	}
 }
-
-EXPORT_SYMBOL(__flush_dcache_page);
+EXPORT_SYMBOL(__flush_dcache_pages);
 
 void __flush_anon_page(struct page *page, unsigned long vmaddr)
 {
 	unsigned long addr = (unsigned long) page_address(page);
+	struct folio *folio = page_folio(page);
 
 	if (pages_do_alias(addr, vmaddr)) {
-		if (page_mapcount(page) && !Page_dcache_dirty(page)) {
+		if (folio_mapped(folio) && !folio_test_dcache_dirty(folio)) {
 			void *kaddr;
 
 			kaddr = kmap_coherent(page, vmaddr);
@@ -129,27 +145,29 @@ EXPORT_SYMBOL(__flush_anon_page);
 
 void __update_cache(unsigned long address, pte_t pte)
 {
-	struct page *page;
+	struct folio *folio;
 	unsigned long pfn, addr;
 	int exec = !pte_no_exec(pte) && !cpu_has_ic_fills_f_dc;
+	unsigned int i;
 
 	pfn = pte_pfn(pte);
 	if (unlikely(!pfn_valid(pfn)))
 		return;
-	page = pfn_to_page(pfn);
-	if (Page_dcache_dirty(page)) {
-		if (PageHighMem(page))
-			addr = (unsigned long)kmap_atomic(page);
-		else
-			addr = (unsigned long)page_address(page);
 
-		if (exec || pages_do_alias(addr, address & PAGE_MASK))
-			flush_data_cache_page(addr);
+	folio = page_folio(pfn_to_page(pfn));
+	address &= PAGE_MASK;
+	address -= offset_in_folio(folio, pfn << PAGE_SHIFT);
 
-		if (PageHighMem(page))
-			kunmap_atomic((void *)addr);
+	if (folio_test_dcache_dirty(folio)) {
+		for (i = 0; i < folio_nr_pages(folio); i++) {
+			addr = (unsigned long)kmap_local_folio(folio, i);
 
-		ClearPageDcacheDirty(page);
+			if (exec || pages_do_alias(addr, address))
+				flush_data_cache_page(addr);
+			kunmap_local((void *)addr);
+			address += PAGE_SIZE;
+		}
+		folio_clear_dcache_dirty(folio);
 	}
 }
 
@@ -157,31 +175,32 @@ unsigned long _page_cachable_default;
 EXPORT_SYMBOL(_page_cachable_default);
 
 #define PM(p)	__pgprot(_page_cachable_default | (p))
-#define PVA(p)	PM(_PAGE_VALID | _PAGE_ACCESSED | (p))
+
+static pgprot_t protection_map[16] __ro_after_init;
+DECLARE_VM_GET_PAGE_PROT
 
 static inline void setup_protection_map(void)
 {
 	protection_map[0]  = PM(_PAGE_PRESENT | _PAGE_NO_EXEC | _PAGE_NO_READ);
-	protection_map[1]  = PVA(_PAGE_PRESENT | _PAGE_NO_EXEC);
-	protection_map[2]  = PVA(_PAGE_PRESENT | _PAGE_NO_EXEC | _PAGE_NO_READ);
-	protection_map[3]  = PVA(_PAGE_PRESENT | _PAGE_NO_EXEC);
-	protection_map[4]  = PVA(_PAGE_PRESENT);
-	protection_map[5]  = PVA(_PAGE_PRESENT);
-	protection_map[6]  = PVA(_PAGE_PRESENT);
-	protection_map[7]  = PVA(_PAGE_PRESENT);
+	protection_map[1]  = PM(_PAGE_PRESENT | _PAGE_NO_EXEC);
+	protection_map[2]  = PM(_PAGE_PRESENT | _PAGE_NO_EXEC | _PAGE_NO_READ);
+	protection_map[3]  = PM(_PAGE_PRESENT | _PAGE_NO_EXEC);
+	protection_map[4]  = PM(_PAGE_PRESENT);
+	protection_map[5]  = PM(_PAGE_PRESENT);
+	protection_map[6]  = PM(_PAGE_PRESENT);
+	protection_map[7]  = PM(_PAGE_PRESENT);
 
 	protection_map[8]  = PM(_PAGE_PRESENT | _PAGE_NO_EXEC | _PAGE_NO_READ);
-	protection_map[9]  = PVA(_PAGE_PRESENT | _PAGE_NO_EXEC);
-	protection_map[10] = PVA(_PAGE_PRESENT | _PAGE_NO_EXEC | _PAGE_WRITE |
+	protection_map[9]  = PM(_PAGE_PRESENT | _PAGE_NO_EXEC);
+	protection_map[10] = PM(_PAGE_PRESENT | _PAGE_NO_EXEC | _PAGE_WRITE |
 				_PAGE_NO_READ);
-	protection_map[11] = PVA(_PAGE_PRESENT | _PAGE_NO_EXEC | _PAGE_WRITE);
-	protection_map[12] = PVA(_PAGE_PRESENT);
-	protection_map[13] = PVA(_PAGE_PRESENT);
-	protection_map[14] = PVA(_PAGE_PRESENT);
-	protection_map[15] = PVA(_PAGE_PRESENT);
+	protection_map[11] = PM(_PAGE_PRESENT | _PAGE_NO_EXEC | _PAGE_WRITE);
+	protection_map[12] = PM(_PAGE_PRESENT);
+	protection_map[13] = PM(_PAGE_PRESENT);
+	protection_map[14] = PM(_PAGE_PRESENT | _PAGE_WRITE);
+	protection_map[15] = PM(_PAGE_PRESENT | _PAGE_WRITE);
 }
 
-#undef _PVA
 #undef PM
 
 void cpu_cache_init(void)
@@ -195,11 +214,6 @@ void cpu_cache_init(void)
 		extern void __weak r4k_cache_init(void);
 
 		r4k_cache_init();
-	}
-	if (cpu_has_tx39_cache) {
-		extern void __weak tx39_cache_init(void);
-
-		tx39_cache_init();
 	}
 
 	if (cpu_has_octeon_cache) {

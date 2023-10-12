@@ -4,7 +4,7 @@
 $id: http://devicetree.org/schemas/usb/usb-device.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: The device tree bindings for the Generic USB Device
+title: Generic USB Device
 
 maintainers:
   - Greg Kroah-Hartman <gregkh@linuxfoundation.org>
@@ -76,15 +76,14 @@ patternProperties:
         maxItems: 1
 
 required:
-  - compatible
   - reg
 
 additionalProperties: true
 
 examples:
-  #hub connected to port 1
-  #device connected to port 2
-  #device connected to port 3
+  # hub connected to port 1
+  # device connected to port 2
+  # device connected to port 3
   #    interface 0 of configuration 1
   #    interface 0 of configuration 2
   - |

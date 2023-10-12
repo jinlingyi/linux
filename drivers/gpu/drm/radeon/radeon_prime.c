@@ -29,6 +29,8 @@
 #include <drm/drm_prime.h>
 #include <drm/radeon_drm.h>
 
+#include <drm/ttm/ttm_tt.h>
+
 #include "radeon.h"
 #include "radeon_prime.h"
 
@@ -55,6 +57,8 @@ struct drm_gem_object *radeon_gem_prime_import_sg_table(struct drm_device *dev,
 	dma_resv_unlock(resv);
 	if (ret)
 		return ERR_PTR(ret);
+
+	bo->tbo.base.funcs = &radeon_gem_object_funcs;
 
 	mutex_lock(&rdev->gem.mutex);
 	list_add_tail(&bo->list, &rdev->gem.objects);

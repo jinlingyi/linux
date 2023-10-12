@@ -289,8 +289,7 @@ static struct attribute *lm3642_torch_attrs[] = {
 };
 ATTRIBUTE_GROUPS(lm3642_torch);
 
-static int lm3642_probe(struct i2c_client *client,
-				  const struct i2c_device_id *id)
+static int lm3642_probe(struct i2c_client *client)
 {
 	struct lm3642_platform_data *pdata = dev_get_platdata(&client->dev);
 	struct lm3642_chip_data *chip;
@@ -339,7 +338,7 @@ static int lm3642_probe(struct i2c_client *client,
 	chip->cdev_flash.max_brightness = 16;
 	chip->cdev_flash.brightness_set_blocking = lm3642_strobe_brightness_set;
 	chip->cdev_flash.default_trigger = "flash";
-	chip->cdev_flash.groups = lm3642_flash_groups,
+	chip->cdev_flash.groups = lm3642_flash_groups;
 	err = led_classdev_register(&client->dev, &chip->cdev_flash);
 	if (err < 0) {
 		dev_err(chip->dev, "failed to register flash\n");
@@ -351,7 +350,7 @@ static int lm3642_probe(struct i2c_client *client,
 	chip->cdev_torch.max_brightness = 8;
 	chip->cdev_torch.brightness_set_blocking = lm3642_torch_brightness_set;
 	chip->cdev_torch.default_trigger = "torch";
-	chip->cdev_torch.groups = lm3642_torch_groups,
+	chip->cdev_torch.groups = lm3642_torch_groups;
 	err = led_classdev_register(&client->dev, &chip->cdev_torch);
 	if (err < 0) {
 		dev_err(chip->dev, "failed to register torch\n");
@@ -380,7 +379,7 @@ err_out:
 	return err;
 }
 
-static int lm3642_remove(struct i2c_client *client)
+static void lm3642_remove(struct i2c_client *client)
 {
 	struct lm3642_chip_data *chip = i2c_get_clientdata(client);
 
@@ -388,7 +387,6 @@ static int lm3642_remove(struct i2c_client *client)
 	led_classdev_unregister(&chip->cdev_torch);
 	led_classdev_unregister(&chip->cdev_flash);
 	regmap_write(chip->regmap, REG_ENABLE, 0);
-	return 0;
 }
 
 static const struct i2c_device_id lm3642_id[] = {
